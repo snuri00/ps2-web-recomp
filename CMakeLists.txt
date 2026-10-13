@@ -77,6 +77,12 @@ if(EMSCRIPTEN OR EXISTS "${PS2_WGPU_DIR}/lib/libwgpu_native.a")
     else()
         target_include_directories(ps2runtime PRIVATE "${PS2_WGPU_DIR}/include")
         target_link_libraries(ps2runtime PUBLIC "${PS2_WGPU_DIR}/lib/libwgpu_native.a" dl pthread m)
+	if(APPLE)
+		target_link_libraries(ps2runtime PUBLIC
+	        "-framework Metal" "-framework QuartzCore"
+        	"-framework CoreFoundation" "-framework Foundation"
+	        "-framework IOKit" "-framework IOSurface")
+	endif()
     endif()
 endif()
 
