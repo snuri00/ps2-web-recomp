@@ -9,7 +9,7 @@ case "$(uname -s)-$(uname -m)" in
   Linux-aarch64)  platform=linux-aarch64 ;;
   Darwin-arm64)   platform=macos-aarch64 ;;
   Darwin-x86_64)  platform=macos-x86_64 ;;
-  *) echo "plateforme non gérée: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+  *) echo "unsupported plateform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
 esac
 
 mkdir -p "$target"
