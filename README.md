@@ -97,6 +97,12 @@ This repository contains only original code and third-party code under its own l
 
 The VLC tables of the MPEG decoder are adapted from [Play!](https://github.com/jpd002/Play-) (BSD 2-clause, notice in `runtime/src/ipu/NOTICE`). PCSX2, Play! and the ps2sdk headers were the references for much of the hardware and system behavior emulated here. wgpu-native and Dawn provide WebGPU natively and in the browser, and Emscripten builds the WebAssembly.
 
+## Experimental GT3 bring-up
+
+See [the GT3 bring-up notes](docs/gt3.md) for the focused runtime/tooling changes,
+synthetic regression tests, snapshot compatibility and current validation limits.
+This is not a claim of complete GT3 compatibility.
+
 ## License
 
 The code in this repository is available under the MIT License, see [LICENSE](LICENSE). `runtime/src/ipu/tables.hpp` keeps the BSD 2-clause notice of Play!.

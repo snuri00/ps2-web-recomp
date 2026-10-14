@@ -86,10 +86,13 @@ echo "== [2/6] executable"
 elf="$game/disc/$program"
 if [ -f "$game/core.elf" ]; then
   elf="$game/core.elf"
-elif python3 -I "$here/disc.py" list "$iso" | awk '{print $4}' | grep -qx CORE.GT4; then
-  python3 -I "$here/disc.py" extract "$iso" "$game/disc" CORE.GT4 > /dev/null
-  python3 -I "$here/gt4_core.py" "$game/disc/CORE.GT4" "$game/core.elf" > /dev/null
-  elf="$game/core.elf"
+else
+  core=$(python3 -I "$here/disc.py" list "$iso" | awk '($4 == "CORE.GT3" || $4 == "CORE.GT4") && !core { core = $4 } END { if (core) print core }')
+  if [ -n "$core" ]; then
+    python3 -I "$here/disc.py" extract "$iso" "$game/disc" "$core" > /dev/null
+    python3 -I "$here/gt4_core.py" "$game/disc/$core" "$game/core.elf" > /dev/null
+    elf="$game/core.elf"
+  fi
 fi
 echo "${elf#$ROOT/}"
 modules=()

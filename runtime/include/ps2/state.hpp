@@ -152,6 +152,7 @@ class Writer : public Stream {
 public:
     Writer() : Stream(true) {}
     void bytes(void *data, std::size_t size) override {
+        if (!size) return; // Empty containers may have a null data() pointer.
         const auto *p = static_cast<const std::uint8_t *>(data);
         out.insert(out.end(), p, p + size);
     }
@@ -162,6 +163,7 @@ class Reader : public Stream {
 public:
     Reader(const std::uint8_t *data, std::size_t size) : Stream(false), at_(data), end_(data + size) {}
     void bytes(void *data, std::size_t size) override {
+        if (!size) return;
         if (static_cast<std::size_t>(end_ - at_) < size) throw std::runtime_error("state file is truncated");
         std::memcpy(data, at_, size);
         at_ += size;

@@ -84,9 +84,9 @@ std::uint64_t g_ee_dma_done = 0;
 
 template <typename T>
 T ee_read(std::uint32_t a) {
-    T v;
-    std::memcpy(&v, g_ram + (a & (kRamSize - 1)), sizeof v);
-    return v;
+    // EE words may reside in scratchpad, not just main RAM.
+    static_assert(sizeof(T) == sizeof(std::uint32_t));
+    return static_cast<T>(ld32(a));
 }
 
 void send(const void *packet, std::uint32_t size) {
