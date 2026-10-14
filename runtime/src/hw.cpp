@@ -302,6 +302,8 @@ std::function<void()> event_action(int id, std::uint64_t at) {
 void state(ps2::state::Stream &s) {
     s.tag("eehw");
     s.pod(g_intc_stat);
+    if (s.version() >= 7) s.pod(g_intc_latched);
+    else if (s.loading()) g_intc_latched = 0;
     s.pod(g_intc_mask);
     s.pod(g_dmac_stat);
     s.map(g_regs);
