@@ -903,6 +903,7 @@ void submit(WGPUTextureView present_view = nullptr) {
         WGPURenderPassDescriptor rd = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
         rd.colorAttachmentCount = 1;
         rd.colorAttachments = &color;
+        WGPURenderPassEncoder rp = wgpuCommandEncoderBeginRenderPass(enc, &rd);
         const float w = static_cast<float>(g_surface_width), h = static_cast<float>(g_surface_height);
         static const char *aspect_env_vp = std::getenv("PS2_ASPECT");
         float aspect_vp = 4.0f / 3.0f;
