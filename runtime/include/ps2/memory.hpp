@@ -28,7 +28,7 @@ void slow_st128(std::uint32_t a, const Reg128 &v);
 template <typename T>
 inline T *fast(std::uint32_t a) {
     if (a < kRamSize) [[likely]] return reinterpret_cast<T *>(g_ram + a);
-    if ((a >> 14) == (kScratchpadBase >> 14)) return reinterpret_cast<T *>(g_spr + (a & (kScratchpadSize - 1)));
+    if ((a >> 16) == (kScratchpadBase >> 16)) return reinterpret_cast<T *>(g_spr + (a & (kScratchpadSize - 1)));
     return nullptr;
 }
 

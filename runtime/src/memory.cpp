@@ -36,7 +36,7 @@ std::uint8_t *vu_memory(std::uint32_t p) {
 }
 
 Target resolve(std::uint32_t a) {
-    if ((a >> 14) == (kScratchpadBase >> 14)) return {Region::Scratchpad, g_spr + (a & (kScratchpadSize - 1)), a};
+    if ((a >> 16) == (kScratchpadBase >> 16)) return {Region::Scratchpad, g_spr + (a & (kScratchpadSize - 1)), a};
     const std::uint32_t p = physical(a);
     if (p < 0x10000000u) return {Region::Ram, g_ram + (p & (kRamSize - 1)), p};
     if (p >= 0x11000000u && p < 0x11010000u) {
