@@ -13,6 +13,7 @@
 #include <iterator>
 #include <map>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -32,10 +33,47 @@ Entries read_entries(const std::string &path) {
     while (file >> token) {
         if (token[0] == '#') { std::getline(file, token); continue; }
         const auto colon = token.find(':');
-        if (colon == std::string::npos)
-            entries.main.push_back(static_cast<std::uint32_t>(std::stoul(token, nullptr, 16)));
-        else
-            entries.modules[token.substr(0, colon)].push_back(static_cast<std::uint32_t>(std::stoul(token.substr(colon + 1), nullptr, 16)));
+        if (colon == std::string::npos) {
+            try {
+                entries.main.push_back(static_cast<std::uint32_t>(std::stoul(token, nullptr, 16)));
+            } catch (...) {}
+        } else {
+            try {
+                entries.modules[token.substr(0, colon)].push_back(static_cast<std::uint32_t>(std::stoul(token.substr(colon + 1), nullptr, 16)));
+            } catch (...) {}
+        }
+    }
+    return entries;
+}
+
+Entries read_symbols(const std::string &path) {
+    Entries entries;
+    std::ifstream file(path);
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty() || line[0] == '#' || line[0] == ';' || (line.size() >= 2 && line[0] == '/' && line[1] == '/'))
+            continue;
+        // Encontra o primeiro token de endereço (hexadecimal, podendo começar com 0x)
+        std::istringstream ss(line);
+        std::string token;
+        if (!(ss >> token)) continue;
+        const auto colon = token.find(':');
+        std::string mod;
+        std::string addr_str = token;
+        if (colon != std::string::npos) {
+            mod = token.substr(0, colon);
+            addr_str = token.substr(colon + 1);
+        }
+        if (addr_str.size() > 2 && (addr_str[0] == '0' && (addr_str[1] == 'x' || addr_str[1] == 'X')))
+            addr_str = addr_str.substr(2);
+        try {
+            std::size_t idx = 0;
+            std::uint32_t addr = static_cast<std::uint32_t>(std::stoul(addr_str, &idx, 16));
+            if (idx == addr_str.size() && addr != 0) {
+                if (mod.empty()) entries.main.push_back(addr);
+                else entries.modules[mod].push_back(addr);
+            }
+        } catch (...) {}
     }
     return entries;
 }
@@ -91,7 +129,7 @@ std::vector<Snr2Module> read_modules(const std::string &dir) {
 }
 
 int usage() {
-    std::fprintf(stderr, "usage: eerecomp <elf> [--entries file] [--modules dir] [--probes file] [--out dir] [--stats]\n");
+    std::fprintf(stderr, "usage: eerecomp <elf> [--entries file] [--symbols file] [--modules dir] [--probes file] [--out dir] [--stats]\n");
     return 2;
 }
 
@@ -99,11 +137,12 @@ int usage() {
 
 int main(int argc, char **argv) {
     if (argc < 2) return usage();
-    std::string elf_path = argv[1], entries_path, out, probes_path, modules_dir;
+    std::string elf_path = argv[1], entries_path, symbols_path, out, probes_path, modules_dir;
     bool stats = false;
     for (int i = 2; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--entries" && i + 1 < argc) entries_path = argv[++i];
+        else if (arg == "--symbols" && i + 1 < argc) symbols_path = argv[++i];
         else if (arg == "--stats") stats = true;
         else if (arg == "--out" && i + 1 < argc) out = argv[++i];
         else if (arg == "--probes" && i + 1 < argc) probes_path = argv[++i];
@@ -113,7 +152,14 @@ int main(int argc, char **argv) {
 
     try {
         const Image image = Image::load(elf_path);
-        const Entries entries = entries_path.empty() ? Entries{} : read_entries(entries_path);
+        Entries entries = entries_path.empty() ? Entries{} : read_entries(entries_path);
+        if (!symbols_path.empty()) {
+            const Entries syms = read_symbols(symbols_path);
+            entries.main.insert(entries.main.end(), syms.main.begin(), syms.main.end());
+            for (const auto &[mod, addrs] : syms.modules)
+                entries.modules[mod].insert(entries.modules[mod].end(), addrs.begin(), addrs.end());
+            std::printf("loaded %zu symbols from %s\n", syms.main.size(), symbols_path.c_str());
+        }
         const Links imports = snr2_imports(image);
         Program program = analyse(image, entries.main, dynamic_sites(imports));
         std::map<Op, std::size_t> histogram;

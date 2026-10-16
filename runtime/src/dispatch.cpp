@@ -131,6 +131,13 @@ void dispatch(Cpu &c, std::uint32_t, std::uint32_t depth) {
             }
         }
         record_miss(pc);
+        static bool s_relax = (std::getenv("PS2_RELAX_MISSES") != nullptr);
+        if (s_relax && c.r[31].w[0] != 0 && (c.r[31].w[0] & 3) == 0 && c.r[31].w[0] < kRamSize) {
+            std::fprintf(stderr, "[ee] relax-misses: recovered from missing code at 0x%08X, returning to ra 0x%08X\n", pc, c.r[31].w[0]);
+            c.pc = c.r[31].w[0];
+            c.r[2].w[0] = 0;
+            return;
+        }
         char reason[64];
         std::snprintf(reason, sizeof reason, "missing code at 0x%08X (ra 0x%08X)", pc, c.r[31].w[0]);
         std::fprintf(stderr, "[ee] no translated code at 0x%08X (ra 0x%08X)\n", pc, c.r[31].w[0]);

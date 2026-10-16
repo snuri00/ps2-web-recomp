@@ -94,6 +94,7 @@ void install_cdvd() {
     });
     def("cdvdman", 7, "sceCdSeek", [](Cpu &c) { c.r[2] = 1; });
     def("cdvdman", 8, "sceCdGetError", [](Cpu &c) { c.r[2] = g_cd.error; });
+    def("cdvdman", 9, "sceCdGetReadPos", [](Cpu &c) { c.r[2] = 0; });
     def("cdvdman", 10, "sceCdSearchFile", [](Cpu &c) {
         const std::string name = ram_string(arg(c, 1), 256);
         const auto entry = disc::find(name);
@@ -116,6 +117,7 @@ void install_cdvd() {
     def("cdvdman", 13, "sceCdDiskReady", [](Cpu &c) { c.r[2] = 2; });
     def("cdvdman", 14, "sceCdTrayReq", [](Cpu &c) { if (arg(c, 1)) write32(arg(c, 1), 0); c.r[2] = 1; });
     def("cdvdman", 15, "sceCdStop", [](Cpu &c) { c.r[2] = 1; });
+    def("cdvdman", 16, "sceCdGetToc", [](Cpu &c) { c.r[2] = 1; });
     def("cdvdman", 22, "sceCdRI", [](Cpu &c) {
         for (std::uint32_t i = 0; i < 8; ++i) write8(arg(c, 0) + i, 0);
         if (arg(c, 1)) write32(arg(c, 1), 0);
@@ -135,10 +137,20 @@ void install_cdvd() {
         write8(p + 7, bcd(tm->tm_year % 100));
         c.r[2] = 1;
     });
+    def("cdvdman", 25, "sceCdDecSet", [](Cpu &c) { c.r[2] = 1; });
     def("cdvdman", 28, "sceCdStatus", [](Cpu &c) { c.r[2] = g_cd.busy ? 0x06u : 0x0Au; });
     def("cdvdman", 37, "sceCdCallback", [](Cpu &c) { c.r[2] = g_cd.callback; g_cd.callback = arg(c, 0); });
     def("cdvdman", 38, "sceCdPause", [](Cpu &c) { c.r[2] = 1; });
     def("cdvdman", 39, "sceCdBreak", [](Cpu &c) { c.r[2] = 1; });
+    def("cdvdman", 44, "sceCdGetSubQ", [](Cpu &c) { c.r[2] = 0; });
+    def("cdvdman", 56, "sceCdStInit", [](Cpu &c) { c.r[2] = 1; });
+    def("cdvdman", 57, "sceCdStRead", [](Cpu &c) { c.r[2] = 1; });
+    def("cdvdman", 58, "sceCdStSeek", [](Cpu &c) { c.r[2] = 1; });
+    def("cdvdman", 59, "sceCdStStart", [](Cpu &c) { c.r[2] = 1; });
+    def("cdvdman", 60, "sceCdStStat", [](Cpu &c) { c.r[2] = 0; });
+    def("cdvdman", 61, "sceCdStStop", [](Cpu &c) { c.r[2] = 1; });
+    def("cdvdman", 62, "sceCdStPause", [](Cpu &c) { c.r[2] = 1; });
+    def("cdvdman", 63, "sceCdStResume", [](Cpu &c) { c.r[2] = 1; });
     def("cdvdman", 74, "sceCdPowerOff", [](Cpu &c) { c.r[2] = 1; });
     def("cdvdman", 75, "sceCdMmode", [](Cpu &c) { c.r[2] = 1; });
     def("cdvdman", 78, "sceCdPOffCallback", [](Cpu &c) { c.r[2] = 0; });

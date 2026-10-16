@@ -60,6 +60,27 @@ void index_layer(std::uint32_t pvd_sector, std::uint32_t base) {
     walk(base, u32(pvd + 158), u32(pvd + 166), "", 0);
 }
 
+constexpr std::uint32_t kChunkSectors = 32;
+constexpr std::size_t kMaxCachedChunks = 128;
+
+struct CacheChunk {
+    std::uint32_t chunk_idx = 0;
+    std::uint64_t access_seq = 0;
+    std::vector<std::uint8_t> data;
+};
+
+std::map<std::uint32_t, CacheChunk> g_cache;
+std::uint64_t g_cache_seq = 0;
+
+void evict_oldest_chunk() {
+    if (g_cache.size() < kMaxCachedChunks) return;
+    auto oldest = g_cache.begin();
+    for (auto it = g_cache.begin(); it != g_cache.end(); ++it) {
+        if (it->second.access_seq < oldest->second.access_seq) oldest = it;
+    }
+    g_cache.erase(oldest);
+}
+
 }
 
 bool open(const std::string &path) {
@@ -88,6 +109,8 @@ bool open(const std::string &name, std::uint64_t size, Reader reader, Probe prob
     g_probe = std::move(probe);
     g_size = size;
     g_index.clear();
+    g_cache.clear();
+    g_cache_seq = 0;
     index_layer(16, 0);
     std::uint8_t pvd[kSector];
     read(16, 1, pvd);
@@ -109,13 +132,54 @@ bool is_open() { return static_cast<bool>(g_reader); }
 
 bool read(std::uint32_t sector, std::uint32_t count, void *out) {
     if (!g_reader) return false;
-    const std::size_t want = static_cast<std::size_t>(count) * kSector;
-    const std::size_t got = g_reader(static_cast<std::uint64_t>(sector) * kSector, out, want);
-    if (got < want) std::memset(static_cast<std::uint8_t *>(out) + got, 0, want - got);
-    return got > 0 || !count;
+    if (!count) return true;
+
+    if (count > kChunkSectors * 2) {
+        const std::size_t want = static_cast<std::size_t>(count) * kSector;
+        const std::size_t got = g_reader(static_cast<std::uint64_t>(sector) * kSector, out, want);
+        if (got < want) std::memset(static_cast<std::uint8_t *>(out) + got, 0, want - got);
+        return got > 0;
+    }
+
+    std::uint8_t *dst = static_cast<std::uint8_t *>(out);
+    std::uint32_t remaining = count;
+    std::uint32_t cur_sector = sector;
+
+    while (remaining > 0) {
+        const std::uint32_t chunk_idx = cur_sector / kChunkSectors;
+        const std::uint32_t offset_in_chunk = cur_sector % kChunkSectors;
+        const std::uint32_t can_read = std::min(remaining, kChunkSectors - offset_in_chunk);
+
+        auto it = g_cache.find(chunk_idx);
+        if (it == g_cache.end()) {
+            CacheChunk chunk;
+            chunk.chunk_idx = chunk_idx;
+            chunk.access_seq = ++g_cache_seq;
+            chunk.data.resize(kChunkSectors * kSector);
+            const std::uint64_t chunk_start = static_cast<std::uint64_t>(chunk_idx) * kChunkSectors;
+            const std::size_t want_bytes = kChunkSectors * kSector;
+            const std::size_t got_bytes = g_reader(chunk_start * kSector, chunk.data.data(), want_bytes);
+            if (got_bytes < want_bytes) {
+                std::memset(chunk.data.data() + got_bytes, 0, want_bytes - got_bytes);
+            }
+            evict_oldest_chunk();
+            it = g_cache.emplace(chunk_idx, std::move(chunk)).first;
+        } else {
+            it->second.access_seq = ++g_cache_seq;
+        }
+
+        std::memcpy(dst, it->second.data.data() + offset_in_chunk * kSector, can_read * kSector);
+        dst += can_read * kSector;
+        cur_sector += can_read;
+        remaining -= can_read;
+    }
+    return true;
 }
 
 bool ready(std::uint32_t sector, std::uint32_t count) {
+    if (!count) return true;
+    const std::uint32_t chunk_idx = sector / kChunkSectors;
+    if (g_cache.count(chunk_idx)) return true;
     return !g_probe || g_probe(static_cast<std::uint64_t>(sector) * kSector, static_cast<std::size_t>(count) * kSector);
 }
 

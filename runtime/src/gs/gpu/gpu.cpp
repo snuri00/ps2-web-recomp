@@ -903,9 +903,14 @@ void submit(WGPUTextureView present_view = nullptr) {
         WGPURenderPassDescriptor rd = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
         rd.colorAttachmentCount = 1;
         rd.colorAttachments = &color;
-        WGPURenderPassEncoder rp = wgpuCommandEncoderBeginRenderPass(enc, &rd);
         const float w = static_cast<float>(g_surface_width), h = static_cast<float>(g_surface_height);
-        const float vw = std::min(w, h * 4.0f / 3.0f), vh = vw * 3.0f / 4.0f;
+        static const char *aspect_env_vp = std::getenv("PS2_ASPECT");
+        float aspect_vp = 4.0f / 3.0f;
+        if (aspect_env_vp) {
+            if (std::strcmp(aspect_env_vp, "16:9") == 0 || std::strcmp(aspect_env_vp, "wide") == 0) aspect_vp = 16.0f / 9.0f;
+            else if (std::strcmp(aspect_env_vp, "fill") == 0) aspect_vp = w / (h > 0.0f ? h : 1.0f);
+        }
+        const float vw = std::min(w, h * aspect_vp), vh = vw / aspect_vp;
         wgpuRenderPassEncoderSetViewport(rp, (w - vw) * 0.5f, (h - vh) * 0.5f, vw, vh, 0.0f, 1.0f);
         wgpuRenderPassEncoderSetPipeline(rp, g_blit);
         wgpuRenderPassEncoderSetBindGroup(rp, 0, g_blit_group, 0, nullptr);
@@ -1744,8 +1749,23 @@ bool present(const DisplaySource &src) {
     const std::uint32_t param = push_params({src.fbp, src.fbw, src.psm, src.dbx, src.dby, src.width, src.height, src.halved ? 1u : 0u, current});
     g_commands.push_back({kDisplay, (src.width * g_scale + 7) / 8, (src.height * g_scale + 7) / 8, param});
     const float sw = static_cast<float>(g_surface_width), sh = static_cast<float>(g_surface_height);
-    const float vw = std::min(sw, sh * 4.0f / 3.0f), vh = vw * 3.0f / 4.0f;
-    const std::uint32_t blit[8] = {src.width * g_scale, src.height * g_scale, current, previous, blend ? 1u : 0u, static_cast<std::uint32_t>(vw), static_cast<std::uint32_t>(vh), 0};
+    static const char *aspect_env = std::getenv("PS2_ASPECT");
+    float aspect = 4.0f / 3.0f;
+    if (aspect_env) {
+        if (std::strcmp(aspect_env, "16:9") == 0 || std::strcmp(aspect_env, "wide") == 0) aspect = 16.0f / 9.0f;
+        else if (std::strcmp(aspect_env, "fill") == 0) aspect = sw / (sh > 0.0f ? sh : 1.0f);
+    }
+    const float vw = std::min(sw, sh * aspect), vh = vw / aspect;
+
+    static const char *shader_env = std::getenv("PS2_SHADER");
+    std::uint32_t shader_mode = 0;
+    if (shader_env) {
+        if (std::strcmp(shader_env, "bilinear") == 0 || std::strcmp(shader_env, "1") == 0) shader_mode = 1;
+        else if (std::strcmp(shader_env, "scanlines") == 0 || std::strcmp(shader_env, "crt") == 0 || std::strcmp(shader_env, "2") == 0) shader_mode = 2;
+        else if (std::strcmp(shader_env, "vibrant") == 0 || std::strcmp(shader_env, "3") == 0) shader_mode = 3;
+    }
+
+    const std::uint32_t blit[8] = {src.width * g_scale, src.height * g_scale, current, previous, blend ? 1u : 0u, static_cast<std::uint32_t>(vw), static_cast<std::uint32_t>(vh), shader_mode};
     wgpuQueueWriteBuffer(g_queue, g_blit_params, 0, blit, sizeof blit);
     ++g_field;
     g_have_previous = true;

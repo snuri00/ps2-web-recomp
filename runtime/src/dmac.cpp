@@ -62,7 +62,7 @@ void deliver(int ch, std::uint32_t address, std::uint32_t qwc) {
     const std::size_t bytes = static_cast<std::size_t>(qwc) * 16;
     const std::size_t room = (address & 0x80000000u) ? kScratchpadSize - (address & (kScratchpadSize - 1)) : kRamSize - (address & (kRamSize - 16));
     const std::uint8_t *data = source(address);
-    if (bytes > room || ch == 9) {
+    if (__builtin_expect(bytes > room, 0)) {
         buffer.resize(bytes);
         for (std::uint32_t i = 0; i < qwc; ++i) std::memcpy(buffer.data() + i * 16, source(address + i * 16), 16);
         data = buffer.data();
@@ -71,11 +71,19 @@ void deliver(int ch, std::uint32_t address, std::uint32_t qwc) {
     case 0: vif::transfer(0, data, qwc); break;
     case 1: vif::transfer(1, data, qwc); break;
     case 2: gif::transfer(3, data, qwc); break;
-    case 9:
-        for (std::uint32_t i = 0; i < qwc; ++i)
-            std::memcpy(g_spr + ((g_ch[9].sadr + i * 16) & (kScratchpadSize - 1)), data + i * 16, 16);
-        g_ch[9].sadr = (g_ch[9].sadr + qwc * 16) & (kScratchpadSize - 1);
+    case 9: {
+        const std::uint32_t sadr = g_ch[9].sadr & (kScratchpadSize - 1);
+        const std::uint32_t total = qwc * 16;
+        if (sadr + total <= kScratchpadSize) {
+            std::memcpy(g_spr + sadr, data, total);
+        } else {
+            const std::uint32_t first = kScratchpadSize - sadr;
+            std::memcpy(g_spr + sadr, data, first);
+            std::memcpy(g_spr, data + first, total - first);
+        }
+        g_ch[9].sadr = (sadr + total) & (kScratchpadSize - 1);
         break;
+    }
     default:
         std::fprintf(stderr, "[dma] channel %d data (%u qwords) not handled\n", ch, qwc);
         break;

@@ -72,6 +72,21 @@ void run_vu(int unit, std::uint32_t address) {
 
 template <std::uint32_t Bits, std::uint32_t Components, bool Usn>
 void unpack_fast(std::uint8_t *mem, std::uint32_t mask, std::uint32_t addr, std::uint32_t wl, std::uint32_t skip, const std::uint8_t *bytes, std::uint32_t num) {
+    if constexpr (Bits == 32 && Components == 4) {
+        if (skip == 0) {
+            const std::uint32_t start_idx = addr & mask;
+            const std::uint32_t limit = mask + 1;
+            if (start_idx + num <= limit) {
+                std::memcpy(mem + start_idx * 16, bytes, static_cast<std::size_t>(num) * 16);
+                return;
+            } else {
+                const std::uint32_t first = limit - start_idx;
+                std::memcpy(mem + start_idx * 16, bytes, static_cast<std::size_t>(first) * 16);
+                std::memcpy(mem, bytes + first * 16, static_cast<std::size_t>(num - first) * 16);
+                return;
+            }
+        }
+    }
     std::uint32_t cycle = 0;
     for (std::uint32_t n = 0; n < num; ++n) {
         std::uint32_t value[4];

@@ -107,8 +107,10 @@ void Ring::post(Type type, std::uint32_t arg0, std::uint32_t arg1, const void *d
     std::memcpy(at, &h, sizeof h);
     if (bytes) std::memcpy(at + sizeof h, data, bytes);
     head_.store(head + need, std::memory_order_release);
-    posted_.fetch_add(1);
-    if (consumer_waiting_.exchange(0)) notify(posted_);
+    if (consumer_waiting_.load(std::memory_order_relaxed)) {
+        posted_.fetch_add(1, std::memory_order_release);
+        if (consumer_waiting_.exchange(0)) notify(posted_);
+    }
 }
 
 bool Ring::peek(Header &header, const std::uint8_t *&payload) {
@@ -129,22 +131,24 @@ bool Ring::peek(Header &header, const std::uint8_t *&payload) {
 
 void Ring::pop(const Header &header) {
     tail_.store(tail_.load(std::memory_order_relaxed) + sizeof(Header) + align16(header.bytes), std::memory_order_release);
-    freed_.fetch_add(1);
-    if (producer_waiting_.exchange(0)) notify(freed_);
+    if (producer_waiting_.load(std::memory_order_relaxed)) {
+        freed_.fetch_add(1, std::memory_order_release);
+        if (producer_waiting_.exchange(0)) notify(freed_);
+    }
 }
 
 void Ring::wake() {
-    posted_.fetch_add(1);
+    posted_.fetch_add(1, std::memory_order_release);
     if (consumer_waiting_.exchange(0)) notify(posted_);
 }
 
 void Ring::wait_for_work(int timeout_ms) {
-    const std::uint32_t seen = posted_.load();
-    consumer_waiting_.store(1);
-    if (head_.load() != tail_.load()) {
-        consumer_waiting_.store(0);
+    consumer_waiting_.store(1, std::memory_order_release);
+    if (head_.load(std::memory_order_acquire) != tail_.load(std::memory_order_relaxed)) {
+        consumer_waiting_.store(0, std::memory_order_relaxed);
         return;
     }
+    const std::uint32_t seen = posted_.load(std::memory_order_acquire);
 #ifdef __EMSCRIPTEN__
     if (emscripten_is_main_browser_thread()) ps2_wait_async(&posted_, seen, timeout_ms);
     else emscripten_futex_wait(&posted_, seen, timeout_ms);

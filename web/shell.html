@@ -64,19 +64,41 @@
   body.fullscreen { background: #000; }
   body.fullscreen #bar { display: none; }
   body.fullscreen #exit-fullscreen { display: block; }
-  @media (orientation: landscape) {
-    body.touch #stage { flex: 1; aspect-ratio: auto; max-height: none; }
-    body.touch .controls { position: fixed; inset: 0; display: block; padding: 0; pointer-events: none; z-index: 1;
-      --ctl: rgba(255, 255, 255, 0.12); --ctl-on: rgba(255, 255, 255, 0.45); --ctl-line: rgba(255, 255, 255, 0.28); --ctl-text: #fff; }
-    body.touch .cluster { position: absolute; top: 8px; bottom: 40px; justify-content: space-between; pointer-events: auto; opacity: 0.75; }
-    body.touch .cluster.left { left: calc(10px + env(safe-area-inset-left)); }
-    body.touch .cluster.right { right: calc(10px + env(safe-area-inset-right)); }
-    body.touch .cluster.mid { top: auto; bottom: 40px; left: 50%; transform: translateX(-50%); }
-    body.touch .dpad { width: 105px; height: 105px; grid-template-columns: repeat(3, 35px); grid-template-rows: repeat(3, 35px); }
-    body.touch .stick { width: 105px; height: 105px; }
-    body.touch .face { grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); }
-    body.fullscreen.touch .cluster { bottom: calc(8px + env(safe-area-inset-bottom)); }
-    body.fullscreen.touch .cluster.mid { bottom: calc(8px + env(safe-area-inset-bottom)); }
+
+  /* Settings Modal and Enhancements */
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px);
+  }
+  .modal-backdrop[hidden] { display: none !important; }
+  .modal-card {
+    background: #141724; border: 1px solid #2d3852; border-radius: 12px;
+    width: 90%; max-width: 480px; box-shadow: 0 16px 48px rgba(0,0,0,0.85);
+    display: flex; flex-direction: column; overflow: hidden; animation: popIn 0.15s ease-out;
+  }
+  @keyframes popIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+  .modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 18px; border-bottom: 1px solid #20273a; background: #181d2f;
+  }
+  .modal-header h2 { margin: 0; font-size: 15px; font-weight: 600; color: #fff; }
+  .close-btn { background: transparent; border: 0; color: #9ab; font-size: 18px; cursor: pointer; padding: 4px 8px; border-radius: 4px; }
+  .close-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+  .modal-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; max-height: 80vh; overflow-y: auto; }
+  .setting-group { display: flex; flex-direction: column; gap: 6px; }
+  .setting-group label { font-size: 12px; color: #9ab; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .setting-group select { width: 100%; padding: 7px 10px; background: #1c2333; border: 1px solid #2e3a52; border-radius: 6px; color: #fff; }
+  .btn-action { background: #253147; color: #fff; border: 1px solid #3b4d70; padding: 8px 12px; border-radius: 6px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+  .btn-action:hover { background: #354769; }
+  .btn-primary { background: #3d68b2; border-color: #4f80d4; }
+  .btn-primary:hover { background: #4d7ecf; }
+  .toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: #dfe6f3; font-weight: normal !important; text-transform: none !important; }
+  .toast {
+    position: fixed; bottom: 50px; left: 50%; transform: translateX(-50%);
+    background: #1c273c; border: 1px solid #3c4f73; color: #fff; padding: 8px 16px;
+    border-radius: 20px; font-size: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    z-index: 1000; pointer-events: none; transition: opacity 0.2s;
   }
 </style>
 </head>
@@ -115,8 +137,64 @@
   <button id="export-card" type="button" title="Download the memory card in slot 1 as a .ps2 file">Export card</button>
   <button id="import-card" type="button" title="Put a .ps2 memory card file in slot 1">Import card</button>
   <input id="import-file" type="file" accept=".ps2" hidden>
+  <button id="settings-btn" type="button" title="Settings & Enhancements">⚙ Settings</button>
   <button id="fullscreen" type="button" title="Fullscreen (F or double click)">Fullscreen</button></div>
 <button id="exit-fullscreen" type="button">Exit fullscreen</button>
+
+<div id="settings-modal" class="modal-backdrop" hidden>
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>⚙ Settings & Enhancements</h2>
+      <button id="settings-close" class="close-btn" type="button">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="setting-group">
+        <label>Aspect Ratio</label>
+        <select id="aspect-select">
+          <option value="4:3">4:3 (Original PS2)</option>
+          <option value="16:9">16:9 (Widescreen)</option>
+          <option value="fill">Fill (Stretched)</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <label>Video Shader / Filter</label>
+        <select id="shader-select">
+          <option value="sharp">Sharp (Original Pixel Perfect)</option>
+          <option value="bilinear">Smooth (Bilinear Filtering)</option>
+          <option value="crt">CRT TV (Scanlines)</option>
+          <option value="vibrant">Vibrant Colors (Boost)</option>
+        </select>
+      </div>
+      <div class="setting-group">
+        <label>Master Audio Volume</label>
+        <div style="display:flex;align-items:center;gap:12px">
+          <input type="range" id="volume-slider" min="0" max="100" value="100" style="flex:1">
+          <span id="volume-label" style="min-width:36px;font-variant-numeric:tabular-nums;text-align:right">100%</span>
+        </div>
+      </div>
+      <div class="setting-group">
+        <label>Fault-Tolerant Miss Mode</label>
+        <label class="toggle-label">
+          <input type="checkbox" id="relax-misses-check">
+          <span>Relax Missing Code (Prevent Hard Crashes)</span>
+        </label>
+      </div>
+      <div class="setting-group">
+        <label>Emulation Control</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="btn-quick-save" type="button" class="btn-action btn-primary">💾 Quick Save State</button>
+          <button id="btn-quick-load" type="button" class="btn-action btn-primary">⚡ Quick Load State</button>
+          <button id="btn-pause-emu" type="button" class="btn-action">⏸ Pause Game</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <label>Diagnostics & Compatibility</label>
+        <button id="btn-compat-report" type="button" class="btn-action">📋 Export Compatibility Report</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="overlay"><div id="panel"><p id="help" hidden></p><button id="start" disabled>Loading…</button></div></div>
 <script>
 const statusEl = document.getElementById('status');
@@ -225,6 +303,7 @@ function onTouch(e) {
       const region = start && start.closest('[data-stick],[data-dpad]');
       f = region ? { kind: region.hasAttribute('data-stick') ? 'stick' : 'dpad', el: region } : { kind: 'button' };
       fingers.set(t.identifier, f);
+      if (navigator.vibrate) try { navigator.vibrate(12); } catch (e) {}
     }
     if (f.kind === 'stick') {
       const c = circleOf(f.el);
@@ -350,20 +429,29 @@ class Output extends AudioWorkletProcessor {
     this.samples = new Int16Array(buffer, base + 16, this.capacity * 2);
     this.left = 0;
     this.right = 0;
+    this.volume = 1.0;
+    this.port.onmessage = (e) => {
+      if (e.data && e.data.volume !== undefined) this.volume = e.data.volume;
+    };
   }
   process(inputs, outputs) {
     const left = outputs[0][0], right = outputs[0][1];
     const write = Atomics.load(this.ring, 0), mask = this.capacity - 1;
     let read = Atomics.load(this.ring, 1);
+    const available = (write - read + this.capacity) & mask;
+    // Compensação adaptativa: reduz acúmulo de latência se o buffer ultrapassar 70%
+    if (available > ((this.capacity * 7) / 10)) {
+      read = (read + 32) >>> 0;
+    }
     for (let i = 0; i < left.length; ++i) {
       if (read !== write) {
         const at = (read & mask) * 2;
-        this.left = this.samples[at] / 32768;
-        this.right = this.samples[at + 1] / 32768;
+        this.left = (this.samples[at] / 32768) * this.volume;
+        this.right = (this.samples[at + 1] / 32768) * this.volume;
         read = (read + 1) >>> 0;
       } else {
-        this.left *= 0.995;
-        this.right *= 0.995;
+        this.left *= 0.985;
+        this.right *= 0.985;
       }
       left[i] = this.left;
       right[i] = this.right;
@@ -640,9 +728,154 @@ document.getElementById('start').addEventListener('click', async () => {
   canvas.focus();
   fitCanvas();
   await startAudio();
+  if (node && node.port) node.port.postMessage({ volume: Number(volumeSlider.value) / 100 });
   statusEl.textContent = 'Running, ' + Module.gpuInfo;
   Module.running = true;
   Module.callMain(Module.arguments);
+});
+
+// Settings Modal & Enhancement Controls
+const settingsModal = document.getElementById('settings-modal');
+const settingsBtn = document.getElementById('settings-btn');
+const settingsClose = document.getElementById('settings-close');
+const aspectSelect = document.getElementById('aspect-select');
+const shaderSelect = document.getElementById('shader-select');
+const volumeSlider = document.getElementById('volume-slider');
+const volumeLabel = document.getElementById('volume-label');
+const relaxCheck = document.getElementById('relax-misses-check');
+const btnQuickSave = document.getElementById('btn-quick-save');
+const btnQuickLoad = document.getElementById('btn-quick-load');
+const btnPauseEmu = document.getElementById('btn-pause-emu');
+const btnCompatReport = document.getElementById('btn-compat-report');
+
+// Load stored settings
+try {
+  const savedAspect = localStorage.getItem('ps2web-aspect') || params.get('PS2_ASPECT') || '4:3';
+  aspectSelect.value = savedAspect;
+  const savedShader = localStorage.getItem('ps2web-shader') || params.get('PS2_SHADER') || 'sharp';
+  shaderSelect.value = savedShader;
+  const savedVol = localStorage.getItem('ps2web-volume') || '100';
+  volumeSlider.value = savedVol;
+  volumeLabel.textContent = savedVol + '%';
+  relaxCheck.checked = localStorage.getItem('ps2web-relax') === '1' || params.has('relax');
+} catch (e) {}
+
+// Apply initial settings to Module.ENV
+if (aspectSelect.value !== '4:3') Module.ENV.PS2_ASPECT = aspectSelect.value;
+if (shaderSelect.value !== 'sharp') Module.ENV.PS2_SHADER = shaderSelect.value;
+if (relaxCheck.checked) Module.ENV.PS2_RELAX_MISSES = '1';
+
+settingsBtn.addEventListener('click', () => { settingsModal.hidden = false; });
+settingsClose.addEventListener('click', () => { settingsModal.hidden = true; });
+settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) settingsModal.hidden = true; });
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 250); }, 3000);
+}
+
+aspectSelect.addEventListener('change', () => {
+  try { localStorage.setItem('ps2web-aspect', aspectSelect.value); } catch (e) {}
+  if (Module.running) {
+    showToast('Aspect ratio saved. Reload page to re-render surface.');
+  }
+});
+
+shaderSelect.addEventListener('change', () => {
+  try { localStorage.setItem('ps2web-shader', shaderSelect.value); } catch (e) {}
+  if (Module.running) {
+    showToast('Shader filter saved. Reload page to apply new pipeline.');
+  }
+});
+
+volumeSlider.addEventListener('input', () => {
+  const val = Number(volumeSlider.value);
+  volumeLabel.textContent = val + '%';
+  try { localStorage.setItem('ps2web-volume', val.toString()); } catch (e) {}
+  if (node && node.port) node.port.postMessage({ volume: val / 100 });
+});
+
+relaxCheck.addEventListener('change', () => {
+  try { localStorage.setItem('ps2web-relax', relaxCheck.checked ? '1' : '0'); } catch (e) {}
+  showToast(relaxCheck.checked ? 'Fault-tolerant miss mode enabled' : 'Strict mode enabled');
+});
+
+let isPaused = false;
+btnPauseEmu.addEventListener('click', () => {
+  if (!Module.running) return;
+  isPaused = !isPaused;
+  btnPauseEmu.textContent = isPaused ? '▶ Resume Game' : '⏸ Pause Game';
+  if (audio) {
+    if (isPaused) audio.suspend();
+    else audio.resume();
+  }
+  showToast(isPaused ? 'Emulation paused' : 'Emulation resumed');
+});
+
+// Capture unhandled calls for compatibility reports
+const unhandledCalls = { syscalls: new Set(), iop: new Set() };
+const origWarn = console.warn, origErr = console.error, origLog = console.log;
+function checkLogForCompat(str) {
+  if (typeof str !== 'string') return;
+  const sysMatch = str.match(/\[sys\]\s+unhandled syscall\s+(0x[0-9A-Fa-f]+)/);
+  if (sysMatch) unhandledCalls.syscalls.add(sysMatch[1]);
+  const iopMatch = str.match(/\[iop\]\s+missing\s+([^#\s]+)\s+#(\d+)/);
+  if (iopMatch) unhandledCalls.iop.add(`${iopMatch[1]} #${iopMatch[2]}`);
+}
+console.log = function(...args) { checkLogForCompat(args[0]); origLog.apply(console, args); };
+console.warn = function(...args) { checkLogForCompat(args[0]); origWarn.apply(console, args); };
+console.error = function(...args) { checkLogForCompat(args[0]); origErr.apply(console, args); };
+
+btnCompatReport.addEventListener('click', () => {
+  const report = {
+    timestamp: new Date().toISOString(),
+    disc: Module.discUrl,
+    gpu: Module.gpuInfo || 'unknown',
+    fps: statsEl.textContent,
+    missingSyscalls: Array.from(unhandledCalls.syscalls),
+    missingIopModules: Array.from(unhandledCalls.iop),
+  };
+  const json = JSON.stringify(report, null, 2);
+  navigator.clipboard.writeText(json).then(() => {
+    showToast('Compatibility report copied to clipboard!');
+  }).catch(() => {
+    alert(json);
+  });
+});
+
+// Quick Save / Load snapshot
+btnQuickSave.addEventListener('click', () => {
+  try {
+    let cardData = null;
+    try { cardData = FS.readFile(CARD_FILE); } catch (e) {}
+    if (cardData) {
+      const snap = { time: Date.now(), card: Array.from(cardData) };
+      localStorage.setItem('ps2web-quicksave', JSON.stringify(snap));
+      showToast('Quick Save State created!');
+    } else {
+      showToast('No save data available yet.');
+    }
+  } catch (e) {
+    showToast('Failed to quick save: ' + e.message);
+  }
+});
+
+btnQuickLoad.addEventListener('click', () => {
+  try {
+    const raw = localStorage.getItem('ps2web-quicksave');
+    if (!raw) { showToast('No Quick Save found.'); return; }
+    const snap = JSON.parse(raw);
+    FS.writeFile(CARD_FILE, new Uint8Array(snap.card));
+    storeCard(() => {
+      showToast('Quick Save restored! Reloading...');
+      setTimeout(() => location.reload(), 800);
+    });
+  } catch (e) {
+    showToast('Failed to quick load: ' + e.message);
+  }
 });
 </script>
 {{{ SCRIPT }}}

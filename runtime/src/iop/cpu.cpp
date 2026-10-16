@@ -52,9 +52,13 @@ void bad(Cpu &c, std::uint32_t pc, std::uint32_t w) {
 
 }
 
-std::uint32_t fetch(std::uint32_t pc) {
-    const std::uint32_t p = phys(pc);
-    if (p < 0x00800000u) return ram32(p);
+inline std::uint32_t fetch(std::uint32_t pc) {
+    const std::uint32_t p = pc & 0x1FFFFFFFu;
+    if (p < 0x00800000u) {
+        std::uint32_t val;
+        std::memcpy(&val, g_ram + (p & (kRamSize - 1)), 4);
+        return val;
+    }
     return kernel::fetch_special(pc);
 }
 
@@ -62,7 +66,7 @@ void execute(Cpu &c, std::int64_t &budget) {
     static const bool probing = load_probes();
     while (budget-- > 0) {
         const std::uint32_t pc = c.pc;
-        if (probing) {
+        if (__builtin_expect(probing, 0)) {
             const std::uint32_t a = pc & (kRamSize - 1);
             if (g_probes[a >> 5] & (1u << ((a >> 2) & 7u))) probe(c, pc);
         }
@@ -203,7 +207,7 @@ void execute(Cpu &c, std::int64_t &budget) {
             return;
         }
         r[0] = 0;
-        if (kernel::switch_pending()) return;
+        if (__builtin_expect(kernel::switch_pending(), 0)) return;
     }
 }
 

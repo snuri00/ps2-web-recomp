@@ -58,7 +58,8 @@ iso="$game/disc.iso"
 if [ -e "$iso" ]; then
   echo "already in place"
 else
-  case "${source_path,,}" in
+  source_lower=$(echo "$source_path" | tr '[:upper:]' '[:lower:]')
+  case "$source_lower" in
     *.zip)
       python3 -I - "$source_path" "$iso" <<'EOF'
 import shutil, sys, zipfile

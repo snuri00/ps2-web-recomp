@@ -528,7 +528,7 @@ void write(std::uint32_t reg, std::uint64_t value) {
     constexpr std::uint64_t kVertexRegs = (1ull << 0x01) | (1ull << 0x02) | (1ull << 0x03) | (1ull << 0x04) | (1ull << 0x05) | (1ull << 0x0A) | (1ull << 0x0C) | (1ull << 0x0D);
     if (reg >= 64 || !((kVertexRegs >> reg) & 1u)) ++g_setup_generation;
     static const char *seq = std::getenv("PS2_TRACE_GSSEQ");
-    if (seq) {
+    if (__builtin_expect(seq != nullptr, 0)) {
         static std::uint64_t n = 0, start = std::strtoull(seq, nullptr, 10);
         if (++n >= start && n < start + 100000) std::fprintf(stderr, "[gs] w %02X %016llX\n", reg, static_cast<unsigned long long>(value));
     }
@@ -653,22 +653,18 @@ void write_packed(std::uint32_t reg, const Reg128 &q) {
         break;
     case 0x3: s.uv = (q.w[0] & 0x3FFFu) | ((q.w[1] & 0x3FFFu) << 16); break;
     case 0x4: {
-        const std::uint64_t v = (q.w[0] & 0xFFFFu) | (static_cast<std::uint64_t>(q.w[1] & 0xFFFFu) << 16) |
-                                (static_cast<std::uint64_t>((q.w[2] >> 4) & 0xFFFFFFu) << 32) |
-                                (static_cast<std::uint64_t>((q.w[3] >> 4) & 0xFFu) << 56);
-        write(((q.d[1] >> 47) & 1u) ? 0x0C : 0x04, v);
+        const bool nodraw = ((q.d[1] >> 47) & 1u);
+        vertex(q.w[0] & 0xFFFFu, q.w[1] & 0xFFFFu, (q.w[2] >> 4) & 0xFFFFFFu, static_cast<std::uint8_t>((q.w[3] >> 4) & 0xFFu), !nodraw);
         break;
     }
     case 0x5: {
-        const std::uint64_t v = (q.w[0] & 0xFFFFu) | (static_cast<std::uint64_t>(q.w[1] & 0xFFFFu) << 16) | (static_cast<std::uint64_t>(q.w[2]) << 32);
-        write(((q.d[1] >> 47) & 1u) ? 0x0D : 0x05, v);
+        const bool nodraw = ((q.d[1] >> 47) & 1u);
+        vertex(q.w[0] & 0xFFFFu, q.w[1] & 0xFFFFu, q.w[2], static_cast<std::uint8_t>(s.fog >> 56), !nodraw);
         break;
     }
     case 0xA: s.fog = static_cast<std::uint64_t>((q.w[3] >> 4) & 0xFFu) << 56; break;
-    case 0xC: write(0x0C, (q.w[0] & 0xFFFFu) | (static_cast<std::uint64_t>(q.w[1] & 0xFFFFu) << 16) |
-                              (static_cast<std::uint64_t>((q.w[2] >> 4) & 0xFFFFFFu) << 32) |
-                              (static_cast<std::uint64_t>((q.w[3] >> 4) & 0xFFu) << 56)); break;
-    case 0xD: write(0x0D, (q.w[0] & 0xFFFFu) | (static_cast<std::uint64_t>(q.w[1] & 0xFFFFu) << 16) | (static_cast<std::uint64_t>(q.w[2]) << 32)); break;
+    case 0xC: vertex(q.w[0] & 0xFFFFu, q.w[1] & 0xFFFFu, (q.w[2] >> 4) & 0xFFFFFFu, static_cast<std::uint8_t>((q.w[3] >> 4) & 0xFFu), false); break;
+    case 0xD: vertex(q.w[0] & 0xFFFFu, q.w[1] & 0xFFFFu, q.w[2], static_cast<std::uint8_t>(s.fog >> 56), false); break;
     case 0xE: write(static_cast<std::uint32_t>(q.d[1] & 0xFFu), q.d[0]); break;
     case 0xF: break;
     default: write(reg, q.d[0]); break;

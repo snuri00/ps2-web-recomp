@@ -6,7 +6,7 @@ struct Blit {
     blend: u32,
     out_width: u32,
     out_height: u32,
-    pad: u32,
+    shader_mode: u32,
 }
 
 @group(0) @binding(0) var<storage, read> pixels: array<u32>;
@@ -48,11 +48,44 @@ fn sample(base: u32, uv: vec2<f32>) -> vec4<f32> {
     return mix(top, bottom, f.y);
 }
 
+fn sample_bilinear(base: u32, uv: vec2<f32>) -> vec4<f32> {
+    let size = vec2<f32>(f32(blit.width), f32(blit.height));
+    let t = uv * size - vec2<f32>(0.5, 0.5);
+    let origin = floor(t);
+    let f = fract(t);
+    let x = i32(origin.x);
+    let y = i32(origin.y);
+    let c00 = texel(base, x, y);
+    let c10 = texel(base, x + 1, y);
+    let c01 = texel(base, x, y + 1);
+    let c11 = texel(base, x + 1, y + 1);
+    return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
+}
+
 @fragment
 fn fs(in: VertexOut) -> @location(0) vec4<f32> {
-    var c = sample(blit.current, in.uv);
-    if (blit.blend != 0u) {
-        c = (c + sample(blit.previous, in.uv)) * 0.5;
+    var c: vec4<f32>;
+    if (blit.shader_mode == 1u) {
+        c = sample_bilinear(blit.current, in.uv);
+        if (blit.blend != 0u) {
+            c = (c + sample_bilinear(blit.previous, in.uv)) * 0.5;
+        }
+    } else {
+        c = sample(blit.current, in.uv);
+        if (blit.blend != 0u) {
+            c = (c + sample(blit.previous, in.uv)) * 0.5;
+        }
     }
+
+    if (blit.shader_mode == 2u) {
+        let scan = sin(in.uv.y * f32(blit.height) * 3.14159265);
+        let factor = 0.82 + 0.18 * scan * scan;
+        c = vec4<f32>(c.rgb * factor, c.a);
+    } else if (blit.shader_mode == 3u) {
+        let lum = dot(c.rgb, vec3<f32>(0.299, 0.587, 0.114));
+        let sat = mix(vec3<f32>(lum), c.rgb, 1.25);
+        c = vec4<f32>(clamp(sat * 1.05, vec3<f32>(0.0), vec3<f32>(1.0)), c.a);
+    }
+
     return vec4<f32>(c.rgb, 1.0);
 }

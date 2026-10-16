@@ -39,7 +39,7 @@ const T_OFF4: u32 = 28672u;
 const CLUT_ENTRIES: u32 = 512u;
 
 fn prm(i: u32) -> u32 {
-    return params.v[i / 4u][i % 4u];
+    return params.v[i >> 2u][i & 3u];
 }
 
 struct Loc {
@@ -49,8 +49,8 @@ struct Loc {
 }
 
 fn page_addr(bp: u32, bw: u32, x: u32, y: u32, pw: u32, ph: u32) -> u32 {
-    let per_row = max(1u, bw * 64u / pw);
-    return bp * 256u + ((x / pw) + (y / ph) * per_row) * 8192u;
+    let per_row = max(1u, (bw << 6u) / pw);
+    return (bp << 8u) + ((x / pw) + (y / ph) * per_row) * 8192u;
 }
 
 fn locate(psm: u32, bp: u32, bw: u32, x: u32, y: u32) -> Loc {
@@ -59,39 +59,39 @@ fn locate(psm: u32, bp: u32, bw: u32, x: u32, y: u32) -> Loc {
     var mask = 0xFFFFFFFFu;
     switch psm {
         case 0x30u {
-            a = page_addr(bp, bw, x, y, 64u, 32u) + tables[T_OFFZ32 + (y & 31u) * 64u + (x & 63u)];
+            a = page_addr(bp, bw, x, y, 64u, 32u) + tables[T_OFFZ32 + (((y & 31u) << 6u) | (x & 63u))];
         }
         case 0x31u {
-            a = page_addr(bp, bw, x, y, 64u, 32u) + tables[T_OFFZ32 + (y & 31u) * 64u + (x & 63u)];
+            a = page_addr(bp, bw, x, y, 64u, 32u) + tables[T_OFFZ32 + (((y & 31u) << 6u) | (x & 63u))];
             mask = 0xFFFFFFu;
         }
         case 0x01u {
-            a = page_addr(bp, bw, x, y, 64u, 32u) + tables[T_OFF32 + (y & 31u) * 64u + (x & 63u)];
+            a = page_addr(bp, bw, x, y, 64u, 32u) + tables[T_OFF32 + (((y & 31u) << 6u) | (x & 63u))];
             mask = 0xFFFFFFu;
         }
         case 0x02u {
-            a = page_addr(bp, bw, x, y, 64u, 64u) + tables[T_OFF16 + (y & 63u) * 64u + (x & 63u)];
-            shift = (a & 2u) * 8u;
+            a = page_addr(bp, bw, x, y, 64u, 64u) + tables[T_OFF16 + (((y & 63u) << 6u) | (x & 63u))];
+            shift = (a & 2u) << 3u;
             mask = 0xFFFFu;
         }
         case 0x0Au {
-            a = page_addr(bp, bw, x, y, 64u, 64u) + tables[T_OFF16S + (y & 63u) * 64u + (x & 63u)];
-            shift = (a & 2u) * 8u;
+            a = page_addr(bp, bw, x, y, 64u, 64u) + tables[T_OFF16S + (((y & 63u) << 6u) | (x & 63u))];
+            shift = (a & 2u) << 3u;
             mask = 0xFFFFu;
         }
         case 0x32u {
-            a = page_addr(bp, bw, x, y, 64u, 64u) + tables[T_OFFZ16 + (y & 63u) * 64u + (x & 63u)];
-            shift = (a & 2u) * 8u;
+            a = page_addr(bp, bw, x, y, 64u, 64u) + tables[T_OFFZ16 + (((y & 63u) << 6u) | (x & 63u))];
+            shift = (a & 2u) << 3u;
             mask = 0xFFFFu;
         }
         case 0x3Au {
-            a = page_addr(bp, bw, x, y, 64u, 64u) + tables[T_OFFZ16S + (y & 63u) * 64u + (x & 63u)];
-            shift = (a & 2u) * 8u;
+            a = page_addr(bp, bw, x, y, 64u, 64u) + tables[T_OFFZ16S + (((y & 63u) << 6u) | (x & 63u))];
+            shift = (a & 2u) << 3u;
             mask = 0xFFFFu;
         }
         case 0x13u {
-            a = page_addr(bp, bw, x, y, 128u, 64u) + tables[T_OFF8 + (y & 63u) * 128u + (x & 127u)];
-            shift = (a & 3u) * 8u;
+            a = page_addr(bp, bw, x, y, 128u, 64u) + tables[T_OFF8 + (((y & 63u) << 7u) | (x & 127u))];
+            shift = (a & 3u) << 3u;
             mask = 0xFFu;
         }
         case 0x14u {

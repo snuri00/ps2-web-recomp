@@ -686,6 +686,18 @@ void handle_syscall(Cpu &c, std::uint32_t pc) {
     }
     case 0x4A: g_osd_config = ld32(arg(c, 0)); ret(c, 0); break;
     case 0x4B: st32(arg(c, 0), g_osd_config); ret(c, 0); break;
+    case 0x4C: {
+        const std::uint32_t buf = arg(c, 0), size = arg(c, 1);
+        if (size >= 4) st32(buf, g_osd_config);
+        ret(c, size >= 4 ? 4 : 0);
+        break;
+    }
+    case 0x4D: {
+        const std::uint32_t buf = arg(c, 0), size = arg(c, 1);
+        if (size >= 4) g_osd_config = ld32(buf);
+        ret(c, size >= 4 ? 4 : 0);
+        break;
+    }
     case 0x64: case 0x68: ret(c, 0); break;
     case 0x5B: case 0x6B: ret(c, 0); break;
     case 0x70: ret(c, static_cast<std::int64_t>(hw::gs_imr())); break;
@@ -696,6 +708,7 @@ void handle_syscall(Cpu &c, std::uint32_t pc) {
         else std::fprintf(stderr, "[sys] SetSyscall(0x%X) not supported\n", arg(c, 0));
         ret(c, 0);
         break;
+    case 0x75: ret(c, 0); break;
     case 0x76: ret(c, sif::dma_stat(arg(c, 0))); break;
     case 0x77: ret(c, sif::set_dma(arg(c, 0), arg(c, 1))); request_iop_sync(); break;
     case 0x78:
@@ -704,6 +717,7 @@ void handle_syscall(Cpu &c, std::uint32_t pc) {
         break;
     case 0x79: sif::set_reg(arg(c, 0), arg(c, 1)); ret(c, 0); break;
     case 0x7A: ret(c, static_cast<std::int32_t>(sif::get_reg(arg(c, 0)))); break;
+    case 0x7B: ret(c, 0); break;
     case 0x7C: {
         // Deci2Call: a retail console has no DECI2 manager, so opening a socket fails. A game
         // that gets a valid socket sends its TTY output over it and waits forever for the
@@ -714,10 +728,14 @@ void handle_syscall(Cpu &c, std::uint32_t pc) {
     }
     case 0x7E: ret(c, 0); break;
     case 0x7F: ret(c, kRamSize); break;
-    default:
-        std::fprintf(stderr, "[sys] unhandled syscall 0x%02X from 0x%08X\n", n, pc);
+    default: {
+        static std::set<std::pair<std::uint32_t, std::uint32_t>> s_unhandled;
+        if (s_unhandled.insert({n, pc}).second) {
+            std::fprintf(stderr, "[sys] unhandled syscall 0x%02X (%s) from 0x%08X\n", n, syscall_name(n), pc);
+        }
         ret(c, 0);
         break;
+    }
     }
 }
 
@@ -725,6 +743,7 @@ namespace {
 
 const char *syscall_name(std::uint32_t n) {
     switch (n) {
+    case 0x01: return "ResetEE";
     case 0x02: return "GsSetCrt";
     case 0x04: return "Exit";
     case 0x06: return "LoadExecPS2";
@@ -784,6 +803,8 @@ const char *syscall_name(std::uint32_t n) {
     case 0x48: return "iReferSemaStatus";
     case 0x4A: return "SetOsdConfigParam";
     case 0x4B: return "GetOsdConfigParam";
+    case 0x4C: return "GetOsdConfigParam2";
+    case 0x4D: return "SetOsdConfigParam2";
     case 0x5B: return "GetEntryAddress";
     case 0x64: return "FlushCache";
     case 0x6B: return "SifStopDma";
@@ -792,11 +813,13 @@ const char *syscall_name(std::uint32_t n) {
     case 0x71: return "GsPutIMR";
     case 0x73: return "SetVSyncFlag";
     case 0x74: return "SetSyscall";
+    case 0x75: return "SifInitSyscall";
     case 0x76: return "SifDmaStat";
     case 0x77: return "SifSetDma";
     case 0x78: return "SifSetDChain";
     case 0x79: return "SifSetReg";
     case 0x7A: return "SifGetReg";
+    case 0x7B: return "SifSetSMFlag";
     case 0x7C: return "Deci2Call";
     case 0x7E: return "MachineType";
     case 0x7F: return "GetMemorySize";
