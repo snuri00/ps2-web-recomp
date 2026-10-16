@@ -126,7 +126,9 @@ Thread *best_ready() {
 
 void switch_to(Cpu &c, Thread *next) {
     Thread *cur = current();
-    if (cur == next) return;
+    // After ExitDeleteThread, both pointers can be null. Still enter idle
+    // and unwind instead of continuing the deleted thread's guest code.
+    if (cur && cur == next) return;
     if (cur && (cur->status == kRun || cur->status == kReady || cur->status == kWait || cur->status == kSuspend || cur->status == kWaitSuspend)) {
         save_context(c, cur->context);
         if (cur->status == kRun) cur->status = kReady;

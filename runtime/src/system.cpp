@@ -222,7 +222,8 @@ bool halted() { return g_halted; }
 namespace {
 
 constexpr char kStateMagic[8] = {'P', 'S', '2', 'S', 'T', 'A', 'T', 'E'};
-constexpr std::uint32_t kStateVersion = 2;
+// Version 3 adds the retained INTC latch and i.Link PHY register state.
+constexpr std::uint32_t kStateVersion = 3;
 
 std::function<void()> event_action(int id, std::uint64_t at) {
     if (id == hw::kEventVblank) return vblank;

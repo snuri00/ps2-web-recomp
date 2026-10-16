@@ -83,6 +83,7 @@ struct Dma {
 };
 Dma g_dma[14];
 std::uint32_t g_ohci[0x18];
+std::uint8_t g_ilink_phy[16];
 
 int dma_channel(std::uint32_t a, std::uint32_t &reg) {
     if (a >= 0x1F801080u && a < 0x1F8010F0u) {
@@ -129,6 +130,7 @@ void reset() {
     spu2::reset();
     sio2::reset();
     std::memset(g_ohci, 0, sizeof g_ohci);
+    std::memset(g_ilink_phy, 0, sizeof g_ilink_phy);
 }
 
 void raise_interrupt(unsigned line) {
@@ -208,6 +210,8 @@ void ohci_write(std::uint32_t a, std::uint32_t v) {
 }
 
 std::uint32_t read(std::uint32_t a, unsigned size) {
+    if (a == 0x1F808400u) return 0xFFC00001u;
+    if (a == 0x1F80847Cu) return 0x10000001u;
     if (a >= 0x1F900000u && a < 0x1F900800u) return spu2::read(a, size);
     if (a >= 0x1F801600u && a < 0x1F801660u) return ohci_read(a);
     if (a >= 0x1F808200u && a < 0x1F808280u) return sio2::read(a);
@@ -236,6 +240,26 @@ std::uint32_t read(std::uint32_t a, unsigned size) {
 }
 
 void write(std::uint32_t a, std::uint32_t v, unsigned size) {
+    // Minimal local i.Link initialization with no attached peers. Complete
+    // PHY accesses and report a ready serial clock; no link traffic is modeled.
+    if (a == 0x1F808410u) { g_regs[a] = (v & 2u) | 8u; return; }
+    if (a == 0x1F808408u) { g_regs[a] = v & ~0x00800000u; return; }
+    if (a == 0x1F808420u || a == 0x1F808428u || a == 0x1F808430u) {
+        g_regs[a] &= ~v;
+        return;
+    }
+    if (a == 0x1F808414u) {
+        if (v & 0x40000000u) {
+            g_ilink_phy[(v >> 8) & 15u] = static_cast<std::uint8_t>(v);
+            g_regs[a] = v & ~0x4000FFFFu;
+        } else if (v & 0x80000000u) {
+            const std::uint32_t reg = (v >> 24) & 15u;
+            g_regs[a] = (v & ~0x8000FFFFu) | (reg << 8) | g_ilink_phy[reg];
+            g_regs[0x1F808420u] |= 0x40000000u;
+            if (g_regs[0x1F808424u] & 0x40000000u) raise_interrupt(24);
+        } else g_regs[a] = v;
+        return;
+    }
     if (a >= 0x1F900000u && a < 0x1F900800u) { spu2::write(a, v, size); return; }
     if (a >= 0x1F801600u && a < 0x1F801660u) { ohci_write(a, v); return; }
     if (a >= 0x1F808200u && a < 0x1F808280u) { sio2::write(a, v); return; }
@@ -283,6 +307,7 @@ void state(ps2::state::Stream &s) {
     s.map(g_regs);
     s.pod(g_dma);
     s.pod(g_ohci);
+    s.pod(g_ilink_phy);
     s.pod(g_scratchpad);
 }
 

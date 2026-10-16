@@ -67,7 +67,7 @@ def elf(entry, segments):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Turn Gran Turismo 4's CORE.GT4 into an ELF the recompiler can read.")
+    parser = argparse.ArgumentParser(description="Turn Gran Turismo 3/4's CORE.GT3/CORE.GT4 into an ELF the recompiler can read.")
     parser.add_argument('core')
     parser.add_argument('output')
     args = parser.parse_args()
