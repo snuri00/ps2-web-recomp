@@ -4,6 +4,7 @@
 #include "ps2/system.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace ps2 {
@@ -18,6 +19,47 @@ alignas(64) std::uint8_t g_vu1_mem[16384];
 namespace {
 
 enum class Region { Ram, Scratchpad, Io, Vu, Rom, None };
+
+}
+
+// A watchpoint for porting work: PS2_WATCH=base,len makes every write into
+// that range of main memory print itself, guest store or bulk copy, with the
+// cpu state at the time.
+bool g_watch_on = false;
+std::uint32_t g_watch_base = 0, g_watch_end = 0;
+
+void init_watch() {
+    if (const char *spec = std::getenv("PS2_WATCH")) {
+        std::uint32_t base = 0, len = 0;
+        if (std::sscanf(spec, "%x,%x", &base, &len) == 2 && len) {
+            g_watch_base = base & (kRamSize - 1);
+            g_watch_end = g_watch_base + len;
+            g_watch_on = true;
+            std::fprintf(stderr, "[watch] writes to 0x%08X..0x%08X will print\n", g_watch_base, g_watch_end);
+        }
+    }
+}
+
+void watch_hit(std::uint32_t a, std::uint32_t v, const char *via) {
+    const std::uint8_t *at = (a < kRamSize) ? g_ram + a : ((a >> 14) == (kScratchpadBase >> 14) ? g_spr + (a & (kScratchpadSize - 1)) : nullptr);
+    std::uint32_t was = 0;
+    if (at) std::memcpy(&was, at, 4);
+    std::fprintf(stderr, "[watch] write %08X = %08X (was %08X) via %s, pc 0x%08X ra 0x%08X\n", a, v, was, via, g_cpu.pc, g_cpu.r[31].w[0]);
+}
+
+void watch_span(std::uint32_t a, std::uint32_t n, const char *via) {
+    if (!g_watch_on) return;
+    const std::uint32_t s = a & (kRamSize - 1), e = s + n;
+    if (e <= g_watch_base || s >= g_watch_end) return;
+    for (std::uint32_t k = s & ~3u; k < e; k += 4) {
+        if (k < g_watch_base || k + 4 > g_watch_end) continue;
+        std::uint32_t v;
+        std::memcpy(&v, g_ram + k, 4);
+        std::fprintf(stderr, "[watch] span from %08X: word %08X = %08X via %s, pc 0x%08X\n", a, k, v, via, g_cpu.pc);
+    }
+}
+
+namespace {
 
 struct Target {
     Region region;
@@ -74,6 +116,10 @@ template <typename T>
 void write_slow(std::uint32_t a, T v) {
     const Target t = resolve(a);
     if (t.host) {
+        if (g_watch_on && t.region == Region::Ram) {
+            const std::uint32_t base = t.address & (kRamSize - 1);
+            if (base >= g_watch_base && base < g_watch_end) watch_hit(base, static_cast<std::uint32_t>(v), "store-slow");
+        }
         std::memcpy(t.host, &v, sizeof v);
         if (t.region == Region::Vu && (t.address & 0x4000u) == 0) vu::code_changed((t.address >> 15) & 1u);
         return;

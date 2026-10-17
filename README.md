@@ -63,6 +63,8 @@ python3 scripts/serve.py build/web-mygame games/mygame/disc.iso    # http://loca
 
 The exploring runs press start and then cross every five seconds, which gets most games through their title screens, and put an empty memory card in slot 1 the way the page does, so they follow the path a player takes. `--press 900:cross` replaces that with your own inputs and `--frames` sets how long each run lasts. Frames from the last run land in `games/mygame/shots`, which is the quickest way to see how far a new game gets. `scripts/build_web.sh mygame` rebuilds only the page.
 
+A game may also rewrite its own code: its executable declares an executable segment with no file contents and unpacks a different image into it as the game goes, the way Kingdom Hearts II swaps the module running its boot and menus. No single translation of such a segment can be right, so the exploring runs capture each image the game puts there, translate one per distinct code, and the runtime serves a call into the window from the image whose code is actually in place, checking it word by word. Data in the window the game rewrites freely never matches wrong, and a recapture of a known image folds into the image of the same code.
+
 Set your expectations accordingly: two games have been brought up so far. Another game will most likely stop at a system call or an IOP library function nobody implemented yet, which the runner logs as `[sys] unhandled syscall` or `[iop] missing <library> #<n>`, or use a GS feature the renderer does not handle yet.
 
 ## Browsers

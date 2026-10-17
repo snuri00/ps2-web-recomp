@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Serves a web build and a disc image with HTTP range requests.
 
-usage: serve.py <build dir> <disc image> [port] [--record <dir for unrecorded VU1 programs>]
+usage: serve.py <build dir> <disc image> [port] [--host address] [--record <dir for unrecorded VU1 programs>]
 """
 
 import http.server
@@ -14,6 +14,11 @@ RECORD = None
 if '--record' in sys.argv:
     at = sys.argv.index('--record')
     RECORD = os.path.abspath(sys.argv[at + 1])
+    del sys.argv[at:at + 2]
+HOST = '127.0.0.1'
+if '--host' in sys.argv:
+    at = sys.argv.index('--host')
+    HOST = sys.argv[at + 1]
     del sys.argv[at:at + 2]
 BUILD = os.path.abspath(sys.argv[1])
 DISC = os.path.abspath(sys.argv[2])
@@ -28,8 +33,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             path = '/ps2web.html'
         if path == '/disc.iso':
             return DISC
+        if path.endswith('/'):
+            path += 'index.html'
         name = os.path.normpath(path.lstrip('/'))
-        if name.startswith('..') or os.sep in name:
+        if name.startswith('..') or name == '.':
             return None
         full = os.path.join(BUILD, name)
         return full if os.path.isfile(full) else None
@@ -110,5 +117,5 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-print('serving %s and %s on http://127.0.0.1:%d/' % (BUILD, DISC, PORT))
-http.server.ThreadingHTTPServer(('127.0.0.1', PORT), Handler).serve_forever()
+print('serving %s and %s on http://%s:%d/' % (BUILD, DISC, HOST, PORT))
+http.server.ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

@@ -333,6 +333,7 @@ bool load_elf(const std::string &path, std::uint32_t &entry) {
         const std::uint32_t offset = u32(ph + 4), vaddr = physical(u32(ph + 8)), filesz = u32(ph + 16), memsz = u32(ph + 20);
         if (vaddr + memsz > kRamSize || offset + filesz > data.size()) return false;
         std::memcpy(g_ram + vaddr, data.data() + offset, filesz);
+        watch_span(vaddr, filesz, "boot:load_exec");
         std::memset(g_ram + vaddr + filesz, 0, memsz - filesz);
     }
     return true;
@@ -352,6 +353,7 @@ void request_iop_sync() {
 }
 
 void boot(std::uint32_t entry, const std::vector<std::string> &args) {
+    init_watch();
     hw::reset();
     kernel::reset();
     if (!g_options.disc_path.empty() && !disc::open(g_options.disc_path))

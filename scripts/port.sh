@@ -97,8 +97,14 @@ if grep -q SNR2 "$elf"; then
   python3 -I "$here/disc.py" modules "$iso" "$game/modules"
   modules=(--modules "$game/modules")
 fi
+overlays=()
+if windows=$(python3 -I "$here/windows.py" list "$elf") && [ -n "$windows" ]; then
+  mkdir -p "$game/overlays"
+  overlays=(--overlays "$game/overlays")
+  echo "code windows the game rewrites: $(echo "$windows" | tr '\n' ' ')"
+fi
 
-translate() { "$tools/eerecomp" "$elf" --entries "$game/entries.txt" "${modules[@]}" --out "$generated" | tail -1; }
+translate() { "$tools/eerecomp" "$elf" --entries "$game/entries.txt" "${modules[@]}" "${overlays[@]}" --out "$generated" | tail -1; }
 
 echo "== [3/6] machine code to C++"
 touch "$game/entries.txt"
@@ -116,9 +122,13 @@ echo "== [4/6] exploring"
 if [ "$explore" = 1 ]; then
   for ((round = 1; round <= rounds; round++)); do
     build_native
-    rm -f "$game/misses.txt" "$game/explore.ps2"
-    PS2_GPU_LOW_POWER=1 PS2_VU_RECORD="$game/vu1" "$native/ps2run" "$elf" --disc "$iso" --misses "$game/misses.txt" --memcard "$game/explore.ps2" \
+    rm -f "$game/misses.txt" "$game/explore.ps2" "$game/explore_ram.bin"
+    PS2_DUMP="$game/explore_ram.bin" PS2_GPU_LOW_POWER=1 PS2_VU_RECORD="$game/vu1" "$native/ps2run" "$elf" --disc "$iso" --misses "$game/misses.txt" --memcard "$game/explore.ps2" \
       --frames "$frames" "${presses[@]}" --frames-dir "$game/shots" --frame-every 300 > "$game/explore.log" 2>&1 || true
+    captured=0
+    if [ ${#overlays[@]} -gt 0 ] && [ -f "$game/explore_ram.bin" ]; then
+      captured=$(python3 -I "$here/windows.py" capture "$elf" "$game/explore_ram.bin" "$game/overlays" "$game/misses.txt" | grep -c '^captured' || true)
+    fi
     reason=$(sed -n 's/^\[ee\] halted: //p' "$game/explore.log" | head -1)
     added=$(python3 -I - "$game/entries.txt" "$game/misses.txt" <<'EOF'
 import os, sys
@@ -135,8 +145,8 @@ with open(entries, 'a') as out:
 print(len(new))
 EOF
 )
-    echo "round $round: ${reason:-ran to the end}, $added new entry points"
-    [ "$added" -gt 0 ] || break
+    echo "round $round: ${reason:-ran to the end}, $added new entry points, $captured new window images"
+    [ "$added" -gt 0 ] || [ "$captured" -gt 0 ] || break
     translate
   done
   echo "frames of the last run are in games/$name/shots, its log in games/$name/explore.log"

@@ -27,6 +27,12 @@ struct Translation {
     std::string name;
     std::uint32_t size{};
     std::vector<std::pair<std::uint32_t, std::uint32_t>> checks;
+    // A translation of a code window the game itself rewrites. It is emitted
+    // into the module table like a relocatable module's, but its addresses are
+    // absolute: every image of that window is precompiled for the one base it
+    // occupies.
+    bool fixed_module{};
+    std::uint32_t fixed_base{};
 };
 
 void generate(const std::vector<Translation> &translations, const CodegenOptions &options);

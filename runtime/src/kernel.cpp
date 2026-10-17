@@ -697,7 +697,17 @@ void handle_syscall(Cpu &c, std::uint32_t pc) {
         ret(c, 0);
         break;
     case 0x76: ret(c, sif::dma_stat(arg(c, 0))); break;
-    case 0x77: ret(c, sif::set_dma(arg(c, 0), arg(c, 1))); request_iop_sync(); break;
+    case 0x77: {
+        if (g_options.trace_io) {
+            const std::uint32_t list = arg(c, 0), count = arg(c, 1);
+            std::fprintf(stderr, "[sys] SifSetDma from pc 0x%08X: %u transfers\n", pc, count);
+            for (std::uint32_t i = 0; i < count && i < 4; ++i)
+                std::fprintf(stderr, "[sys]   %08X -> %08X size %u\n", ld32(list + i * 16), ld32(list + i * 16 + 4), ld32(list + i * 16 + 8));
+        }
+        ret(c, sif::set_dma(arg(c, 0), arg(c, 1)));
+        request_iop_sync();
+        break;
+    }
     case 0x78:
         if (interrupt_variant) sif::packet_processed();
         ret(c, 0);

@@ -90,8 +90,67 @@ std::vector<Snr2Module> read_modules(const std::string &dir) {
     return modules;
 }
 
+// A code window the game rewrites at runtime is a segment of the executable
+// with no file contents. The pipeline captures what the game unpacks into it
+// as files named <base>_<name>.bin, one content per file, and this reads them
+// all as images of the one window, each a module to translate for that base.
+std::vector<Snr2Module> read_overlays(const std::string &dir) {
+    std::vector<Snr2Module> overlays;
+    for (const auto &path : std::filesystem::directory_iterator(dir)) {
+        if (!path.is_regular_file() || path.path().extension() != ".bin") continue;
+        const std::string stem = path.path().stem().string();
+        const auto split = stem.find('_');
+        if (split == std::string::npos) continue;
+        const std::string base = stem.substr(0, split);
+        if (base.empty() || base.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) continue;
+        Snr2Module o;
+        std::ifstream file(path.path(), std::ios::binary);
+        o.bytes = std::vector<std::uint8_t>{std::istreambuf_iterator<char>(file), {}};
+        if (o.bytes.size() < 0x400u || o.bytes.size() & 3u) continue;
+        o.size = static_cast<std::uint32_t>(o.bytes.size());
+        o.base = static_cast<std::uint32_t>(std::stoul(base, nullptr, 16));
+        o.code_begin = 0;
+        o.code_end = o.size;
+        o.name = stem;
+        if (std::any_of(overlays.begin(), overlays.end(), [&](const Snr2Module &m) { return m.base == o.base && m.bytes == o.bytes; })) continue;
+        overlays.push_back(std::move(o));
+    }
+    std::sort(overlays.begin(), overlays.end(), [](const Snr2Module &a, const Snr2Module &b) { return a.name < b.name; });
+    return overlays;
+}
+
+// Calls the static program makes into the window seed every image of it, so
+// each is translated from those entry points whether or not it has been seen.
+std::vector<std::uint32_t> window_entries(const Image &image, const Program &program, std::uint32_t base, std::uint32_t size) {
+    std::vector<std::uint32_t> seeds;
+    for (std::uint32_t pc = program.base; pc < program.end; pc += 4) {
+        if (!program.is_code(pc)) continue;
+        const Insn i = decode(*image.word(pc), pc);
+        const Flow f = flow(i.op);
+        if (f != Flow::Jump && f != Flow::Call) continue;
+        const std::uint32_t t = i.jump_target();
+        if (t - base < size) seeds.push_back(t);
+    }
+    return seeds;
+}
+
+// A window image is served only while every word of it the game runs as code
+// is in place, so the checks are all the translated code words: the game
+// writes the window's data freely, and a change any translation covers is a
+// different image and a call into it must pick the other module.
+std::vector<std::pair<std::uint32_t, std::uint32_t>> checks_for_window(const Snr2Module &o, const Program &program) {
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> checks;
+    for (std::uint32_t at = 0; at + 4 <= o.size; at += 4) {
+        if (!program.is_code(o.base + at)) continue;
+        std::uint32_t word = 0;
+        std::memcpy(&word, o.bytes.data() + at, 4);
+        checks.emplace_back(at, word);
+    }
+    return checks;
+}
+
 int usage() {
-    std::fprintf(stderr, "usage: eerecomp <elf> [--entries file] [--modules dir] [--probes file] [--out dir] [--stats]\n");
+    std::fprintf(stderr, "usage: eerecomp <elf> [--entries file] [--modules dir] [--overlays dir] [--probes file] [--out dir] [--stats]\n");
     return 2;
 }
 
@@ -99,7 +158,7 @@ int usage() {
 
 int main(int argc, char **argv) {
     if (argc < 2) return usage();
-    std::string elf_path = argv[1], entries_path, out, probes_path, modules_dir;
+    std::string elf_path = argv[1], entries_path, out, probes_path, modules_dir, overlays_dir;
     bool stats = false;
     for (int i = 2; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -108,6 +167,7 @@ int main(int argc, char **argv) {
         else if (arg == "--out" && i + 1 < argc) out = argv[++i];
         else if (arg == "--probes" && i + 1 < argc) probes_path = argv[++i];
         else if (arg == "--modules" && i + 1 < argc) modules_dir = argv[++i];
+        else if (arg == "--overlays" && i + 1 < argc) overlays_dir = argv[++i];
         else return usage();
     }
 
@@ -141,6 +201,84 @@ int main(int argc, char **argv) {
         if (!modules.empty())
             std::printf("%zu modules, code %zu instructions (%zu KiB), %zu sites in the program linked at run time\n", modules.size(), module_code,
                         module_code * 4 / 1024, imports.size());
+        const std::vector<Snr2Module> overlays =
+            overlays_dir.empty() || !std::filesystem::exists(overlays_dir) ? std::vector<Snr2Module>{} : read_overlays(overlays_dir);
+        // Data in a window lives and dies with the game, so captures of one
+        // image differ in bytes it wrote since. The code identifies the image:
+        // analyse every capture with the same seeds, group the ones answering
+        // to one code, and translate one image per group, so a re-captured
+        // image is never served by a translation that has not seen its entry
+        // points.
+        std::size_t overlay_code = 0;
+        std::map<std::uint32_t, std::vector<std::uint32_t>> window_seeds;
+        std::map<std::uint32_t, std::set<std::uint32_t>> window_tokens;
+        std::map<std::string, std::string> variant_of;
+        std::map<std::string, std::set<std::uint32_t>> window_offsets;
+        std::map<std::uint32_t, std::vector<std::pair<std::string, std::vector<std::pair<std::uint32_t, std::uint32_t>>>>> code_signatures;
+        std::set<std::string> representatives;
+        std::set<std::uint32_t> called_out;
+        for (const Snr2Module &o : overlays) {
+            if (!window_seeds.count(o.base)) window_seeds[o.base] = window_entries(image, program, o.base, o.size);
+            if (const auto it = entries.modules.find(o.name); it != entries.modules.end())
+                for (const std::uint32_t entry : it->second) window_tokens[o.base].insert(entry);
+        }
+        for (const Snr2Module &o : overlays) {
+            Image candidate = Image::raw(o.base, o.bytes, {0, o.size});
+            std::vector<std::uint32_t> seeds = window_seeds[o.base];
+            for (const std::uint32_t entry : window_tokens[o.base]) seeds.push_back(o.base + entry);
+            const Program signature_program = analyse(candidate, seeds, {});
+            std::vector<std::pair<std::uint32_t, std::uint32_t>> signature;
+            for (std::uint32_t at = 0; at + 4 <= o.size; at += 4)
+                if (signature_program.is_code(o.base + at)) {
+                    std::uint32_t word = 0;
+                    std::memcpy(&word, o.bytes.data() + at, 4);
+                    signature.emplace_back(at, word);
+                }
+            bool found = false;
+            for (const auto &[name, sig] : code_signatures[o.base])
+                if (sig == signature) { found = true; variant_of[o.name] = name; break; }
+            if (!found) {
+                code_signatures[o.base].push_back({o.name, signature});
+                variant_of[o.name] = o.name;
+                representatives.insert(o.name);
+            }
+            if (const auto it = entries.modules.find(o.name); it != entries.modules.end())
+                for (const std::uint32_t entry : it->second) window_offsets[variant_of[o.name]].insert(entry);
+        }
+        for (const Snr2Module &o : overlays) {
+            if (!representatives.count(o.name)) continue;
+            images.push_back(Image::raw(o.base, o.bytes, {0, o.size}));
+            std::vector<std::uint32_t> seeds = window_seeds[o.base];
+            // Entry tokens name module positions, and unlike a relocatable
+            // module this image occupies a real address.
+            for (const std::uint32_t entry : window_offsets[o.name]) seeds.push_back(o.base + entry);
+            programs.push_back(analyse(images.back(), seeds, {}));
+            overlay_code += code_size(programs.back());
+            translations.push_back({&images.back(), &programs.back(), nullptr, "m_" + o.name + "_", false, o.name, o.size,
+                                    checks_for_window(o, programs.back()), true, o.base});
+            for (std::uint32_t pc = o.base; pc < o.base + o.size; pc += 4) {
+                if (!programs.back().is_code(pc)) continue;
+                const Insn i = decode(*images.back().word(pc), pc);
+                const Flow f = flow(i.op);
+                const std::uint32_t t = i.jump_target();
+                if ((f == Flow::Jump || f == Flow::Call) && t >= program.base && t < program.end && !program.entries.count(t)) called_out.insert(t);
+            }
+        }
+        // Window code jumps into the program at places the program may reach
+        // only through pointers, if at all: entry points of it all the same.
+        if (!called_out.empty()) {
+            std::vector<std::uint32_t> seeds = entries.main;
+            seeds.insert(seeds.end(), called_out.begin(), called_out.end());
+            program = analyse(image, seeds, dynamic_sites(imports));
+            std::printf("%zu entry points of the program called from code windows\n", called_out.size());
+        }
+        if (!overlays.empty()) {
+            std::size_t called_entries = 0;
+            for (const auto &[base, seeds] : window_seeds) called_entries += seeds.size();
+            std::printf("%zu distinct code window images of %zu captured, code %zu instructions (%zu KiB), %zu entry points called from the program\n",
+                        std::count_if(overlays.begin(), overlays.end(), [&](const Snr2Module &o) { return representatives.count(o.name) != 0; }),
+                        overlays.size(), overlay_code, overlay_code * 4 / 1024, called_entries);
+        }
 
         if (!out.empty()) {
             CodegenOptions options;

@@ -6,7 +6,7 @@ cxx_probe=$(mktemp -d)
 printf '#include <format>\nint main() { return std::format("{}", 1).size() != 1; }\n' > "$cxx_probe/t.cpp"
 cxx_candidates=()
 [ -n "${CXX:-}" ] && cxx_candidates+=("$CXX")
-cxx_candidates+=($(compgen -c clang++- | grep -E '^clang\+\+-[0-9]+$' | sort -t- -k2 -rn | uniq) clang++ g++)
+cxx_candidates+=($(compgen -c clang++- | grep -E '^clang\+\+-[0-9]+$' | sort -t- -k2 -rn | uniq || true) clang++ g++)
 for cxx in "${cxx_candidates[@]}"; do
   command -v "$cxx" > /dev/null || continue
   for stdlib in "" -stdlib=libc++; do

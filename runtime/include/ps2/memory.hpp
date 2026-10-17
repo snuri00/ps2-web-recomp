@@ -14,6 +14,18 @@ inline constexpr std::uint32_t kScratchpadSize = 16u << 10;
 extern std::uint8_t g_ram[];
 extern std::uint8_t g_spr[];
 
+extern bool g_watch_on;
+extern std::uint32_t g_watch_base, g_watch_end;
+void watch_hit(std::uint32_t a, std::uint32_t v, const char *via);
+void watch_span(std::uint32_t a, std::uint32_t n, const char *via);
+void init_watch();
+
+template <typename T>
+inline bool watched(std::uint32_t a, std::uint32_t v) {
+    if (g_watch_on && a >= g_watch_base && a < g_watch_end) [[unlikely]] watch_hit(a, v, "store");
+    return false;
+}
+
 std::uint8_t slow_ld8(std::uint32_t a);
 std::uint16_t slow_ld16(std::uint32_t a);
 std::uint32_t slow_ld32(std::uint32_t a);
@@ -68,26 +80,31 @@ inline void ld128(std::uint32_t a, Reg128 &out) {
 }
 
 inline void st8(std::uint32_t a, std::uint8_t v) {
+    watched<std::uint8_t>(a, v);
     if (auto *p = fast<std::uint8_t>(a)) { *p = v; return; }
     slow_st8(a, v);
 }
 
 inline void st16(std::uint32_t a, std::uint16_t v) {
+    watched<std::uint16_t>(a, v);
     if (auto *p = fast<std::uint8_t>(a)) { store(p, v); return; }
     slow_st16(a, v);
 }
 
 inline void st32(std::uint32_t a, std::uint32_t v) {
+    watched<std::uint32_t>(a, v);
     if (auto *p = fast<std::uint8_t>(a)) { store(p, v); return; }
     slow_st32(a, v);
 }
 
 inline void st64(std::uint32_t a, std::uint64_t v) {
+    watched<std::uint32_t>(a, static_cast<std::uint32_t>(v));
     if (auto *p = fast<std::uint8_t>(a)) { store(p, v); return; }
     slow_st64(a, v);
 }
 
 inline void st128(std::uint32_t a, const Reg128 &v) {
+    watched<std::uint32_t>(a, v.w[0]);
     if (auto *p = fast<std::uint8_t>(a)) { std::memcpy(p, &v, 16); return; }
     slow_st128(a, v);
 }

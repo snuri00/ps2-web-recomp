@@ -118,6 +118,7 @@ void spr_to_ram(Channel &c, std::uint32_t qwc) {
     for (std::uint32_t i = 0; i < qwc; ++i) {
         const std::uint32_t at = wrap ? ring(c.madr + i * 16) : c.madr + i * 16;
         std::memcpy(target(at), g_spr + ((c.sadr + i * 16) & (kScratchpadSize - 1)), 16);
+        watch_span(at, 16, "dma:spr_to_ram");
     }
     c.sadr = (c.sadr + qwc * 16) & (kScratchpadSize - 1);
 }
@@ -164,6 +165,7 @@ void run_normal(int ch) {
         for (std::uint32_t i = 0, n = 1; i < c.qwc; i += n, n = 1) {
             while (i + n < c.qwc && target(c.madr + (i + n) * 16) == target(c.madr + i * 16) + n * 16) ++n;
             gs::read_image(target(c.madr + i * 16), n);
+            watch_span(c.madr + i * 16, n * 16, "dma:gs_read_image");
         }
     } else {
         std::fprintf(stderr, "[dma] channel %d reads from a device (not emulated)\n", ch);
@@ -361,6 +363,7 @@ bool ipu_push(const std::uint8_t *qword) {
     Channel &c = g_ch[3];
     if (!(c.chcr & 0x100u) || !c.qwc) return false;
     std::memcpy(target(c.madr), qword, 16);
+    watch_span(c.madr, 16, "dma:ipu_push");
     c.madr += 16;
     if (!--c.qwc) finish(3);
     return true;

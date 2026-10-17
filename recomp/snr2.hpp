@@ -24,6 +24,7 @@ struct Snr2Module {
     std::string name;
     std::vector<std::uint8_t> bytes;
     std::uint32_t size{};
+    std::uint32_t base{};
     std::uint32_t code_begin{};
     std::uint32_t code_end{};
     Links links;

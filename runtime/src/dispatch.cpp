@@ -32,26 +32,55 @@ std::uint32_t g_module_span = 0;
 std::vector<Instance> g_instances;
 
 bool loaded_at(const ModuleInfo &m, std::uint32_t base) {
-    if (ld32(base + 0x2Cu) != m.size) return false;
+    if (m.fixed_base) {
+        if (base != m.fixed_base) return false;
+    } else if (ld32(base + 0x2Cu) != m.size) {
+        return false;
+    }
     for (std::uint32_t k = 0; k < m.check_count; ++k)
         if (ld32(base + m.checks[2 * k]) != m.checks[2 * k + 1]) return false;
     return true;
+}
+
+// The word a call checks turns with each call, so every translated code word
+// is proven again within check_count calls: one word per call keeps calls
+// cheap while even a one word change of the image is caught in time.
+std::uint32_t g_spot_cursor = 0;
+
+const Instance *in_place(const Instance &i) {
+    if (std::getenv("PS2_WINDOW_FULL")) return loaded_at(*i.module, i.base) ? &i : nullptr;
+    if (!i.module->check_count) return &i;
+    const std::uint32_t c = g_spot_cursor++ % i.module->check_count;
+    return ld32(i.base + i.module->checks[2 * c]) == i.module->checks[2 * c + 1] ? &i : nullptr;
+}
+
+Instance make_instance(std::uint32_t base, const ModuleInfo *m) {
+    return {base, m};
 }
 
 const Instance *instance_for(std::uint32_t pc) {
     for (std::size_t k = 0; k < g_instances.size(); ++k) {
         const Instance &i = g_instances[k];
         if (pc - i.base >= i.module->size) continue;
-        if (loaded_at(*i.module, i.base)) return &i;
+        if (in_place(i)) return &i;
         g_instances.erase(g_instances.begin() + static_cast<std::ptrdiff_t>(k));
         break;
     }
     if (!g_module_count || pc >= kRamSize) return nullptr;
+    // A code window rewritten by the game holds fixed base modules, each an
+    // image of one content. The one whose check words are in place serves it.
+    for (std::uint32_t k = 0; k < g_module_count; ++k) {
+        const ModuleInfo &m = g_modules[k];
+        if (m.fixed_base && pc - m.fixed_base < m.size && loaded_at(m, m.fixed_base)) {
+            g_instances.push_back(make_instance(m.fixed_base, &m));
+            return &g_instances.back();
+        }
+    }
     for (std::uint32_t at = pc & ~15u; pc - at < g_module_span; at -= 16) {
         if (ld32(at) == kModuleMagic) {
             for (std::uint32_t k = 0; k < g_module_count; ++k)
                 if (pc - at < g_modules[k].size && loaded_at(g_modules[k], at)) {
-                    g_instances.push_back({at, &g_modules[k]});
+                    g_instances.push_back(make_instance(at, &g_modules[k]));
                     return &g_instances.back();
                 }
             return nullptr;

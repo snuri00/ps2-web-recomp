@@ -20,6 +20,7 @@ constexpr int kErrorUnknownSema = -408;
 constexpr int kErrorUnknownEvent = -409;
 constexpr int kErrorUnknownMbx = -410;
 constexpr int kErrorUnknownFpl = -412;
+constexpr int kErrorUnknownVpl = -452;
 constexpr int kErrorSemaZero = -419;
 constexpr int kErrorEventCondition = -421;
 constexpr int kErrorMbxNone = -424;
@@ -98,6 +99,19 @@ struct Fpl {
     std::vector<std::uint32_t> free;
     std::deque<int> waiters;
 };
+
+// Kingdom Hearts II's sound driver allocates its working memory with the
+// kernel's variable sized thread pool library: one pool of 0x39000 bytes whose
+//blocks, rounded to 128, hold streaming buffers and thread stacks. A
+// variable pool is an area the driver sub-allocates from, so keep the used
+// spans per id and serve them first fit.
+struct Vpl {
+    std::uint32_t attr, option, size, base;
+    std::map<std::uint32_t, std::uint32_t> used;
+    std::deque<int> waiters;
+};
+
+std::map<int, Vpl> g_vpls;
 
 struct VblankHandler {
     int edge;
@@ -682,6 +696,71 @@ void install_thfpool() {
     });
 }
 
+void install_thvpool() {
+    register_hle_library("thvpool", 0x0101);
+    def("thvpool", 4, "CreateVpl", [](Cpu &c) {
+        const std::uint32_t p = arg(c, 0);
+        Vpl v{};
+        v.attr = read32(p);
+        v.option = read32(p + 4);
+        v.size = read32(p + 8);
+        v.size = (v.size + 0xFFu) & ~0xFFu;
+        if (!v.size) v.size = 0x100u;
+        v.base = alloc(v.size);
+        if (!v.base) { c.r[2] = static_cast<std::uint32_t>(kErrorNoMemory); return; }
+        const int id = g_next_object++;
+        g_vpls[id] = v;
+        c.r[2] = static_cast<std::uint32_t>(id);
+    });
+    def("thvpool", 5, "DeleteVpl", [](Cpu &c) {
+        auto it = g_vpls.find(static_cast<int>(arg(c, 0)));
+        if (it != g_vpls.end()) { free(it->second.base); g_vpls.erase(it); }
+        c.r[2] = 0;
+    });
+    const auto allocate = [](Cpu &c, bool wait) {
+        auto it = g_vpls.find(static_cast<int>(arg(c, 0)));
+        if (it == g_vpls.end()) { c.r[2] = static_cast<std::uint32_t>(kErrorUnknownVpl); return; }
+        Vpl &v = it->second;
+        const std::uint32_t size = (arg(c, 1) + 3u) & ~3u;
+        std::uint32_t at = v.base;
+        for (const auto &[a, s] : v.used) {
+            if (a > at && a - at >= size) break;
+            at = a + s;
+        }
+        if (size <= v.size && at - v.base + size <= v.size) { v.used[at] = size; c.r[2] = at; return; }
+        if (!wait) { c.r[2] = 0; return; }
+        v.waiters.push_back(current() ? current()->id : 0);
+        block(c, kWaitVpl, it->first);
+    };
+    def("thvpool", 6, "AllocateVpl", [allocate](Cpu &c) { allocate(c, true); });
+    def("thvpool", 7, "pAllocateVpl", [allocate](Cpu &c) { allocate(c, false); });
+    def("thvpool", 8, "ipAllocateVpl", [allocate](Cpu &c) { allocate(c, false); });
+    def("thvpool", 9, "FreeVpl", [](Cpu &c) {
+        auto it = g_vpls.find(static_cast<int>(arg(c, 0)));
+        if (it == g_vpls.end()) { c.r[2] = static_cast<std::uint32_t>(kErrorUnknownVpl); return; }
+        const std::uint32_t block_addr = arg(c, 1);
+        it->second.used.erase(block_addr);
+        if (!it->second.waiters.empty()) {
+            const int t = it->second.waiters.front();
+            it->second.waiters.pop_front();
+            if (Thread *th = thread(t)) wake(*th, block_addr);
+            reschedule();
+        }
+        c.r[2] = 0;
+    });
+    def("thvpool", 11, "ReferVplStatus", [](Cpu &c) {
+        auto it = g_vpls.find(static_cast<int>(arg(c, 0)));
+        if (it == g_vpls.end()) { c.r[2] = static_cast<std::uint32_t>(kErrorUnknownVpl); return; }
+        std::uint32_t used = 0;
+        for (const auto &[a, s] : it->second.used) used += s;
+        const std::uint32_t p = arg(c, 1);
+        write32(p + 0, it->second.attr);
+        write32(p + 4, used);
+        write32(p + 8, it->second.size - used);
+        c.r[2] = 0;
+    });
+}
+
 void install_sysclib() {
     register_hle_library("sysclib", 0x0103);
     def("sysclib", 4, "setjmp", [](Cpu &c) {
@@ -1088,6 +1167,7 @@ void install_libraries() {
     g_alarms.clear();
     g_hard_timers.clear();
     g_hard_timer_start.clear();
+    g_vpls.clear();
     g_next_object = 1;
     g_next_alarm = 1;
     g_rotate_order = 1ull << 40;
@@ -1108,6 +1188,7 @@ void install_libraries() {
     install_thevent();
     install_thmsgbx();
     install_thfpool();
+    install_thvpool();
     install_sysclib();
     install_stdio();
     install_modload();

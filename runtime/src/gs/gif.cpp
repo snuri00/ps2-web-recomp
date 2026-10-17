@@ -198,7 +198,10 @@ void write(std::uint32_t a, std::uint32_t v) {
     if ((a & 0xF0u) == 0x10u) g_stat = (g_stat & ~1u) | (v & 1u);
 }
 
-void set_path3_masked(bool masked) { g_stat = (g_stat & ~2u) | (masked ? 2u : 0u); }
+void set_path3_masked(bool masked) {
+    g_stat = (g_stat & ~2u) | (masked ? 2u : 0u);
+    if (std::getenv("PS2_TRACE_PATH3")) std::fprintf(stderr, "[gif] path3 %s\n", masked ? "masked" : "unmasked");
+}
 
 }
 

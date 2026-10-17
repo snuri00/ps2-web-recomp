@@ -29,6 +29,7 @@ void read_to_ee(std::uint32_t sector, std::uint32_t count, std::uint32_t dst) {
     disc::read(sector, count, data.data());
     const std::uint32_t at = dst & (ps2::kRamSize - 1);
     std::memcpy(ps2::g_ram + at, data.data(), std::min<std::size_t>(data.size(), ps2::kRamSize - at));
+    ps2::watch_span(at, static_cast<std::uint32_t>(std::min<std::size_t>(data.size(), ps2::kRamSize - at)), "cdvd:read");
 }
 
 }
@@ -37,6 +38,7 @@ void install_cdvdfsv() {
     g_streaming = false;
     g_stream_pos = 0;
     register_job(kJobFsvRead, [](const Job &j) {
+        if (g_trace_hle) std::fprintf(stderr, "[cdvdfsv] stream write lsn %u count %u to 0x%08X\n", j.a, j.b, j.c);
         if (!disc::ready(j.a, j.b)) {
             schedule(now() + usec_to_cycles(1000), j);
             return;
@@ -97,6 +99,7 @@ void install_cdvdfsv() {
     });
     sif::register_hle_server(0x80000595u, [](std::uint32_t method, std::uint32_t args, std::uint32_t, std::uint32_t ret, std::uint32_t ret_size) {
         const std::uint32_t sector = ee32(args), count = ee32(args + 4), dst = ee32(args + 8);
+        if (g_trace_hle) std::fprintf(stderr, "[cdvdfsv] N 0x%X sector %u count %u to 0x%08X\n", method, sector, count, dst);
         switch (method) {
         case 0x01:
             if (ret_size >= 4) set_ee32(ret, 0);
@@ -110,6 +113,7 @@ void install_cdvdfsv() {
             return false;
         case 0x09: {
             const std::uint32_t cmd = ee32(args + 12);
+            if (g_trace_hle) std::fprintf(stderr, "[cdvdfsv] stream cmd %u (pos %u)\n", cmd, g_stream_pos);
             switch (cmd) {
             case 1: g_stream_pos = sector; g_streaming = true; set_ee32(ret, 1); return true;
             case 2: {

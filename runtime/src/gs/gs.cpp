@@ -638,6 +638,10 @@ void signal(std::uint32_t reg, std::uint64_t value) {
 
 void write_packed(std::uint32_t reg, const Reg128 &q) {
     State &s = g_state;
+    if (const char *seq = std::getenv("PS2_TRACE_GSSEQ")) {
+        static std::uint64_t n = 0, start = std::strtoull(seq, nullptr, 10);
+        if (++n >= start && n < start + 100000) std::fprintf(stderr, "[gs] w %02X %016llX\n", reg, static_cast<unsigned long long>(q.d[0]));
+    }
     switch (reg) {
     case 0x0: write(0x00, q.d[0] & 0x7FFu); break;
     case 0x1: {

@@ -40,6 +40,10 @@ Image Image::load(const std::string &path) {
         const auto filesz = read<std::uint32_t>(data, ph + 16), memsz = read<std::uint32_t>(data, ph + 20);
         const auto flags = read<std::uint32_t>(data, ph + 24);
         if (offset + filesz > data.size()) throw std::runtime_error("segment outside the file");
+        // An executable segment with no file contents is a code window: the
+        // game rewrites it at runtime, so it holds no code to translate here
+        // and any call into it walks to the images the game puts there.
+        if (!filesz && (flags & 1u)) continue;
         Segment segment{vaddr, std::vector<std::uint8_t>(memsz), (flags & 1u) != 0};
         std::memcpy(segment.bytes.data(), data.data() + offset, filesz);
         image.segments_.push_back(std::move(segment));

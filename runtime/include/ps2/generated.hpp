@@ -23,6 +23,11 @@ struct UnitInfo {
 
 struct ModuleInfo {
     const char *name;
+    // Zero for relocatable modules, which are found in memory by their header.
+    // A fixed base is a code window the game itself rewrites: the module is a
+    // precompiled image of one content that can occupy it, and the checks say
+    // whether it is the one in place now.
+    std::uint32_t fixed_base;
     std::uint32_t size;
     const std::uint32_t *checks;
     std::uint32_t check_count;

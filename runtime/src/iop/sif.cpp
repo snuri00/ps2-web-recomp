@@ -182,6 +182,7 @@ void other_data(const std::uint8_t *packet) {
     std::memcpy(&dst, packet + 36, 4);
     std::memcpy(&size, packet + 40, 4);
     std::memcpy(g_ram + (dst & (kRamSize - 1)), iop::ram_ptr(src), size);
+    watch_span(dst, size, "sif:other_data");
     Rend r = make_rend(*reinterpret_cast<const Header *>(packet), record, paddr, rpc, receive, 0x8000000Cu);
     send(&r, sizeof r);
 }
@@ -250,7 +251,7 @@ void command(std::uint32_t src, std::uint32_t size) {
     default: {
         auto it = g_cmd_handlers.find(h->cid);
         if (it == g_cmd_handlers.end()) {
-            std::fprintf(stderr, "[sif] command 0x%08X has no handler\n", h->cid);
+            std::fprintf(stderr, "[sif] command 0x%08X has no handler (from ee buffer 0x%08X)\n", h->cid, src);
             break;
         }
         std::memcpy(iop::ram_ptr(kCmdBuffer), packet, std::min<std::uint32_t>(size, 0x400u));
@@ -330,8 +331,10 @@ void rpc_finish(iop::Cpu &c) {
         const Call call = it->second;
         g_held_calls.erase(it);
         const std::uint32_t result = c.r[2];
-        if (call.recv && result && call.recv_size)
+        if (call.recv && result && call.recv_size) {
             std::memcpy(g_ram + (call.recv & (kRamSize - 1)), iop::ram_ptr(result), (call.recv_size + 3u) & ~3u);
+            watch_span(call.recv, (call.recv_size + 3u) & ~3u, "sif:rpc_finish");
+        }
         reply_call(call);
     }
     c.pc = g_loop_stub;
@@ -358,6 +361,7 @@ void install_iop_side() {
                              iop::read32(src), iop::read32(src + 4), iop::read32(src + 8), iop::read32(src + 12));
             }
             std::memcpy(g_ram + (dst & (kRamSize - 1)), iop::ram_ptr(src), std::min(size, kRamSize - (dst & (kRamSize - 1))));
+            watch_span(dst, std::min(size, kRamSize - (dst & (kRamSize - 1))), "sif:iop_dma");
         }
         c.r[2] = g_iop_dma_id++;
         if (callback) iop::kernel::schedule(iop::kernel::now() + 32, iop::kernel::Job{iop::kernel::kJobSifDmaCallback, callback, data});
@@ -382,7 +386,7 @@ void install_iop_side() {
     auto send_cmd = [](iop::Cpu &c) {
         const std::uint32_t cid = arg(c, 0), packet = arg(c, 1), size = arg(c, 2);
         const std::uint32_t src = arg(c, 3), dst = arg(c, 4), extra = arg(c, 5);
-        if (extra) std::memcpy(g_ram + (dst & (kRamSize - 1)), iop::ram_ptr(src), extra);
+        if (extra) { std::memcpy(g_ram + (dst & (kRamSize - 1)), iop::ram_ptr(src), extra); watch_span(dst, extra, "sif:send_cmd"); }
         std::vector<std::uint8_t> bytes(size);
         std::memcpy(bytes.data(), iop::ram_ptr(packet), size);
         const std::uint32_t words[2] = {(size & 0xFFu) | (extra << 8), dst};
@@ -413,7 +417,7 @@ void install_iop_side() {
         iop::write32(client + 28, arg(c, 7));
         iop::write32(client + 32, arg(c, 8));
         const std::uint32_t buff = iop::read32(client + 20) & (kRamSize - 1);
-        if (send_size && buff) std::memcpy(g_ram + buff, iop::ram_ptr(send_ptr), std::min(send_size, kRamSize - buff));
+        if (send_size && buff) { std::memcpy(g_ram + buff, iop::ram_ptr(send_ptr), std::min(send_size, kRamSize - buff)); watch_span(buff, send_size, "sif:call_rpc"); }
         iop::write32(client + 0, 1);
         // rmode 1 makes the EE answer with an RPC end command, which is what wakes the caller
         // and runs its end function. Every call asks for it: with rmode 0 the EE would write
@@ -473,7 +477,9 @@ void fileio_reply(std::uint32_t args, std::uint32_t command, const std::vector<s
     if (g_fileio_result) {
         const std::uint32_t header[4] = {ee_read<std::uint32_t>(args), command, ee_read<std::uint32_t>(args + 4), ee_read<std::uint32_t>(args + 8)};
         std::memcpy(g_ram + (g_fileio_result & (kRamSize - 1)), header, 16);
+        watch_span(g_fileio_result, 16, "sif:fileio_hdr");
         std::memcpy(g_ram + (g_fileio_result & (kRamSize - 1)) + 16, body.data(), body.size() * 4);
+        watch_span(g_fileio_result + 16, static_cast<std::uint32_t>(body.size() * 4), "sif:fileio_body");
     }
     const std::uint32_t packet[4] = {16, 0, 0x80000011u, 0};
     send(packet, 16);
@@ -487,6 +493,7 @@ bool fileio_async(std::uint32_t method, std::uint32_t args, std::uint32_t, std::
     case 255:
         g_fileio_result = word(0);
         std::memcpy(g_ram + ret, g_loadfile_version, 4);
+        watch_span(ret, 4, "sif:loadfile_version");
         return true;
     case 0: {
         const std::int32_t fd = iop::io::open(text(20), word(12));
@@ -501,7 +508,7 @@ bool fileio_async(std::uint32_t method, std::uint32_t args, std::uint32_t, std::
         const std::uint32_t size = word(20);
         std::vector<std::uint8_t> buffer(size);
         const int n = iop::io::read(static_cast<int>(word(12)), buffer.data(), size);
-        if (n > 0) std::memcpy(g_ram + (word(16) & (kRamSize - 1)), buffer.data(), static_cast<std::size_t>(n));
+        if (n > 0) { std::memcpy(g_ram + (word(16) & (kRamSize - 1)), buffer.data(), static_cast<std::size_t>(n)); watch_span(word(16), static_cast<std::uint32_t>(n), "sif:file_read"); }
         fileio_reply(args, 2, {static_cast<std::uint32_t>(n), 0, 0, 0});
         return true;
     }
@@ -600,6 +607,7 @@ void install_servers() {
         }
         if (method == 0xFF) {
             std::memcpy(g_ram + ret, g_loadfile_version, 4);
+        watch_span(ret, 4, "sif:loadfile_version");
             return true;
         }
         std::fprintf(stderr, "[loadfile] method %u\n", method);
@@ -620,7 +628,7 @@ void install_servers() {
         case 2: {
             std::vector<std::uint8_t> buffer(word(2));
             result = iop::io::read(static_cast<int>(word(0)), buffer.data(), word(2));
-            if (result > 0) std::memcpy(g_ram + (word(1) & (kRamSize - 1)), buffer.data(), static_cast<std::size_t>(result));
+            if (result > 0) { std::memcpy(g_ram + (word(1) & (kRamSize - 1)), buffer.data(), static_cast<std::size_t>(result)); watch_span(word(1), static_cast<std::uint32_t>(result), "sif:file_read"); }
             break;
         }
         case 3: result = static_cast<std::int32_t>(word(2)); break;
@@ -759,6 +767,7 @@ void pump() {
     const std::vector<std::uint8_t> packet = std::move(g_outgoing.front());
     g_outgoing.pop_front();
     std::memcpy(g_ram + g_ee_recv, packet.data(), packet.size());
+    watch_span(g_ee_recv, static_cast<std::uint32_t>(packet.size()), "sif:pump");
     g_processed = false;
     hw::dmac_raise(5);
 }
