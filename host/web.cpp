@@ -1,5 +1,6 @@
 #include "ps2/disc.hpp"
 #include "ps2/system.hpp"
+#include "ps2/video.hpp"
 
 #include <emscripten.h>
 #include <emscripten/threading.h>
@@ -341,6 +342,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE void ps2web_resize(int width, int height) {
     ps2::resize_window(static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height));
 }
 
+extern "C" EMSCRIPTEN_KEEPALIVE void ps2web_video_options(int flags) { ps2::set_video_options(static_cast<std::uint32_t>(flags)); }
+
 extern "C" EMSCRIPTEN_KEEPALIVE double ps2web_gpu_ms() { return ps2::gpu_busy_ms(); }
 extern "C" EMSCRIPTEN_KEEPALIVE double ps2web_frames() { return static_cast<double>(ps2::frames_run()); }
 extern "C" EMSCRIPTEN_KEEPALIVE double ps2web_primitives() { return static_cast<double>(ps2::primitives_drawn()); }
@@ -408,6 +411,10 @@ int main(int argc, char **argv) {
         surface = ps2::attach_window(target);
     }
     copy = copy || (!surface && !no_surface);
+    EM_ASM({
+        Module.videoEffectsAvailable = !!$0;
+        if (Module.refreshVideoControls) Module.refreshVideoControls();
+    }, surface);
     std::fprintf(stderr, "[web] %s\n", surface ? "presenting through WebGPU" : copy ? "presenting through a 2D canvas copy" : "not presenting");
 
     ps2::start_render_thread();

@@ -16,6 +16,7 @@
 #include "ps2/memory.hpp"
 #include "ps2/state.hpp"
 #include "ps2/system.hpp"
+#include "ps2/video.hpp"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -56,6 +57,7 @@ std::uint64_t g_frames = 0;
 std::uint64_t g_iop_synced = 0;
 bool g_state_request = false;
 bool g_resumed = false;
+std::atomic<std::uint32_t> g_video_options{0};
 
 std::uint64_t next_event_time() {
     std::uint64_t t = UINT64_MAX;
@@ -240,6 +242,9 @@ void halt(const std::string &reason) {
 
 bool halted() { return g_halted; }
 const std::string &halt_reason() { return g_halt_reason; }
+
+void set_video_options(std::uint32_t options) { g_video_options.store(options, std::memory_order_relaxed); }
+std::uint32_t video_options() { return g_video_options.load(std::memory_order_relaxed); }
 
 namespace {
 

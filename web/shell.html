@@ -15,6 +15,7 @@
   #stats { font-variant-numeric: tabular-nums; color: #9ad; }
   select { background: #2a3a55; color: #fff; border: 0; padding: 5px 8px; border-radius: 4px; }
   button { background: #2a3a55; color: #fff; border: 0; padding: 6px 14px; border-radius: 4px; cursor: pointer; }
+  #aa-label { display: flex; align-items: center; gap: 6px; color: #9ad; white-space: nowrap; }
   #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); padding: 16px; }
   #panel { display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 520px; text-align: center; }
   #help { margin: 0; line-height: 1.5; color: #e8c37a; }
@@ -116,6 +117,7 @@
     <option value="4:3">4:3</option>
     <option value="16:9">16:9</option>
   </select>
+  <label id="aa-label" title="Smooth jagged edges, applied immediately"><input id="aa" type="checkbox" disabled> Smooth edges</label>
   <button id="controls-toggle" type="button" hidden>Hide controls</button>
   <button id="export-card" type="button" title="Download the memory card in slot 1 as a .ps2 file">Export card</button>
   <button id="import-card" type="button" title="Put a .ps2 memory card file in slot 1">Import card</button>
@@ -288,6 +290,22 @@ aspectSelect.addEventListener('change', () => {
   const url = new URL(location.href);
   url.searchParams.delete('aspect');
   location.href = url.href;
+});
+
+// Edge antialiasing is a display option, so it lives outside the save state
+// and takes effect on the next presented frame.
+const aaInput = document.getElementById('aa');
+const aaLabel = document.getElementById('aa-label');
+let aa = false;
+try { aa = localStorage.getItem('ps2web-aa') === '1'; } catch (e) {}
+aaInput.checked = aa;
+function applyVideo() {
+  if (Module._ps2web_video_options) Module._ps2web_video_options(aa ? 1 : 0);
+}
+aaInput.addEventListener('change', () => {
+  aa = aaInput.checked;
+  try { localStorage.setItem('ps2web-aa', aa ? '1' : '0'); } catch (e) {}
+  applyVideo();
 });
 
 const controlsButton = document.getElementById('controls-toggle');
@@ -580,6 +598,12 @@ var Module = {
     noteTimer = 0;
     statusEl.textContent = 'Halted: ' + reason;
     statusEl.style.color = '#f66';
+  },
+  refreshVideoControls: () => {
+    const available = Module.videoEffectsAvailable ?? (!!navigator.gpu && !Module.gpuHelp && !Module.presentCopy && !Module.noSurface);
+    aaInput.disabled = !available;
+    aaLabel.title = available ? 'Smooth jagged edges, applied immediately' : 'Antialiasing needs direct WebGPU presentation';
+    applyVideo();
   },
   print: (text) => console.log(text),
   printErr: (text) => console.log(text),

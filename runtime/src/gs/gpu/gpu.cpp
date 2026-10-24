@@ -1,5 +1,6 @@
 #include "gpu.hpp"
 #include "ps2/system.hpp"
+#include "ps2/video.hpp"
 
 #include <webgpu/webgpu.h>
 #ifndef __EMSCRIPTEN__
@@ -1747,7 +1748,7 @@ bool present(const DisplaySource &src) {
     const float sw = static_cast<float>(g_surface_width), sh = static_cast<float>(g_surface_height);
     const float aspect = g_options.widescreen ? 16.0f / 9.0f : 4.0f / 3.0f;
     const float vw = std::min(sw, sh * aspect), vh = vw / aspect;
-    const std::uint32_t blit[8] = {src.width * g_scale, src.height * g_scale, current, previous, blend ? 1u : 0u, static_cast<std::uint32_t>(vw), static_cast<std::uint32_t>(vh), 0};
+    const std::uint32_t blit[8] = {src.width * g_scale, src.height * g_scale, current, previous, blend ? 1u : 0u, static_cast<std::uint32_t>(vw), static_cast<std::uint32_t>(vh), ps2::video_options()};
     wgpuQueueWriteBuffer(g_queue, g_blit_params, 0, blit, sizeof blit);
     ++g_field;
     g_have_previous = true;
