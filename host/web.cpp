@@ -1,4 +1,5 @@
 #include "ps2/disc.hpp"
+#include "ps2/state_request.hpp"
 #include "ps2/system.hpp"
 
 #include <emscripten.h>
@@ -339,6 +340,14 @@ extern "C" EMSCRIPTEN_KEEPALIVE int ps2web_rumble(int pad) { return ps2::pad_rum
 
 extern "C" EMSCRIPTEN_KEEPALIVE void ps2web_resize(int width, int height) {
     ps2::resize_window(static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height));
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE int ps2web_quick_state(int loading) {
+    return ps2::request_state_operation(loading != 0, "/quicksave.state", [](bool load, bool success) {
+        MAIN_THREAD_ASYNC_EM_ASM({
+            if (Module.onQuickState) Module.onQuickState(!!$0, !!$1);
+        }, load, success);
+    }) ? 1 : 0;
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE double ps2web_gpu_ms() { return ps2::gpu_busy_ms(); }

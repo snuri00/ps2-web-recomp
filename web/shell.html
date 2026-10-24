@@ -116,6 +116,8 @@
     <option value="4:3">4:3</option>
     <option value="16:9">16:9</option>
   </select>
+  <button id="save-state" type="button" disabled title="Save the game to this device">Save state</button>
+  <button id="load-state" type="button" disabled title="Load the quick save from this device">Load state</button>
   <button id="controls-toggle" type="button" hidden>Hide controls</button>
   <button id="export-card" type="button" title="Download the memory card in slot 1 as a .ps2 file">Export card</button>
   <button id="import-card" type="button" title="Put a .ps2 memory card file in slot 1">Import card</button>
@@ -289,6 +291,99 @@ aspectSelect.addEventListener('change', () => {
   url.searchParams.delete('aspect');
   location.href = url.href;
 });
+
+// One quick save per player URL, kept in this browser's IndexedDB. The state
+// file itself is captured by the emulation thread, so saving never pauses it
+// mid-instruction.
+const saveStateButton = document.getElementById('save-state');
+const loadStateButton = document.getElementById('load-state');
+const STATE_FILE = '/quicksave.state';
+let stateBusy = false, statePending = null;
+
+function stateKey() {
+  return location.pathname + '|' + new URL(Module.discUrl, location.href).href;
+}
+
+function stateSlot(value) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open('ps2-player-quicksave', 1);
+    open.onupgradeneeded = () => open.result.createObjectStore('slots');
+    open.onerror = () => reject(open.error);
+    open.onblocked = () => reject(new Error('Close other player tabs and try again.'));
+    open.onsuccess = () => {
+      const db = open.result;
+      // A put commits atomically: a failed write preserves the previous save.
+      const transaction = db.transaction('slots', value === undefined ? 'readonly' : 'readwrite');
+      const store = transaction.objectStore('slots');
+      const request = value === undefined ? store.get(stateKey()) : store.put(value, stateKey());
+      transaction.oncomplete = () => { db.close(); resolve(request.result); };
+      transaction.onabort = () => { db.close(); reject(transaction.error || new Error('Browser storage write failed.')); };
+    };
+  });
+}
+
+async function stateDigest(bytes) {
+  if (!crypto.subtle) return '';
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function requestState(loading) {
+  return new Promise((resolve, reject) => {
+    statePending = { loading, resolve, reject };
+    if (!Module._ps2web_quick_state(loading ? 1 : 0)) {
+      statePending = null;
+      reject(new Error('The player is busy. Try again.'));
+    }
+  });
+}
+
+function setStateBusy(busy) {
+  stateBusy = busy;
+  saveStateButton.disabled = loadStateButton.disabled = busy || !Module.running;
+}
+
+async function saveState() {
+  if (stateBusy || !Module.running) return;
+  setStateBusy(true);
+  note('Saving…');
+  try {
+    await requestState(false);
+    const bytes = FS.readFile(STATE_FILE);
+    const record = { bytes, digest: await stateDigest(bytes), savedAt: Date.now() };
+    await stateSlot(record);
+    note('Saved ' + new Date(record.savedAt).toLocaleString());
+  } catch (error) {
+    note(error.name === 'QuotaExceededError' ? 'Not enough device storage. Your previous quick save is unchanged.' : error.message);
+  } finally {
+    try { FS.unlink(STATE_FILE); } catch (e) {}
+    setStateBusy(false);
+  }
+}
+
+async function loadState() {
+  if (stateBusy || !Module.running) return;
+  setStateBusy(true);
+  note('Loading quick save…');
+  try {
+    const record = await stateSlot();
+    if (!record) throw new Error('No quick save yet.');
+    if (!(record.bytes instanceof Uint8Array) || (record.digest && await stateDigest(record.bytes) !== record.digest)) {
+      throw new Error('The quick save is damaged. It has not been loaded.');
+    }
+    FS.writeFile(STATE_FILE, record.bytes);
+    await requestState(true);
+    note('Quick save loaded.');
+  } catch (error) {
+    note(error.message);
+  } finally {
+    try { FS.unlink(STATE_FILE); } catch (e) {}
+    setStateBusy(false);
+  }
+}
+
+saveStateButton.addEventListener('click', saveState);
+loadStateButton.addEventListener('click', loadState);
 
 const controlsButton = document.getElementById('controls-toggle');
 let hideControls = false;
@@ -576,10 +671,21 @@ var Module = {
   noCard: params.has('nocard'),
   presentCopy: params.has('copy'),
   onHalt: (reason) => {
+    if (statePending) {
+      statePending.reject(new Error('The game stopped before the operation completed.'));
+      statePending = null;
+    }
     clearTimeout(noteTimer);
     noteTimer = 0;
     statusEl.textContent = 'Halted: ' + reason;
     statusEl.style.color = '#f66';
+  },
+  onQuickState: (loading, success) => {
+    if (!statePending || statePending.loading !== loading) return;
+    const { resolve, reject } = statePending;
+    statePending = null;
+    if (success) resolve();
+    else reject(new Error(loading ? 'Quick load failed. Reload the player to continue safely.' : 'Could not capture the game. Your previous quick save is unchanged.'));
   },
   print: (text) => console.log(text),
   printErr: (text) => console.log(text),
@@ -668,6 +774,7 @@ document.getElementById('start').addEventListener('click', async () => {
   await startAudio();
   statusEl.textContent = 'Running, ' + Module.gpuInfo;
   Module.running = true;
+  setStateBusy(false);
   Module.callMain(Module.arguments);
 });
 </script>
