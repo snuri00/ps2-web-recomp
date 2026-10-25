@@ -148,6 +148,13 @@ void reschedule(Cpu &c) {
     g_reschedule = false;
     if (g_in_handler) return;
     Thread *cur = current();
+    // A thread entry returns to kIdle; a real EE kernel exits the thread there. Leaving it
+    // current starves an equal-priority ready thread (Dynasty Warriors 4's worker thread 4
+    // returns while the main thread 1 waits, and the game never runs again).
+    if (cur && c.pc == kIdle) {
+        cur->status = kDormant;
+        cur->wait = kWaitNone;
+    }
     Thread *best = best_ready();
     if (best == cur && cur && cur->status == kRun) return;
     switch_to(c, best);
