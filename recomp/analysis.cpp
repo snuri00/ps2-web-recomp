@@ -203,7 +203,8 @@ std::vector<std::uint32_t> frame_starts(const Image &image, std::uint32_t begin,
 
 }
 
-Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entries, const std::set<std::uint32_t> &dynamic) {
+Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entries, const std::set<std::uint32_t> &dynamic,
+                const std::vector<std::uint32_t> &weak) {
     Program p;
     p.dynamic = dynamic;
     p.base = UINT32_MAX;
@@ -239,6 +240,7 @@ Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entr
         candidates.insert(candidates.end(), branches.begin(), branches.end());
         const std::vector<std::uint32_t> frames = frame_starts(image, text_begin, text_end);
         candidates.insert(candidates.end(), frames.begin(), frames.end());
+        candidates.insert(candidates.end(), weak.begin(), weak.end());
         for (const auto &segment : image.segments())
             for (std::size_t offset = 0; offset + 4 <= segment.bytes.size(); offset += 4)
                 candidates.push_back(*image.word(segment.address + static_cast<std::uint32_t>(offset)));

@@ -33,7 +33,21 @@ struct Translation {
     // occupies.
     bool fixed_module{};
     std::uint32_t fixed_base{};
+    // A template: code a game links to another address in each image of an
+    // area (MGS3's stages), translated once at kTemplateBase. Words whose
+    // address fields differ between its places are read from memory, a j/jal
+    // into itself was rewritten to the template base, and the runtime finds the
+    // template at a pc by the masked hash of the piece holding it.
+    bool template_module{};
+    struct Piece {
+        std::uint32_t offset, words;
+        std::uint64_t hash;
+    };
+    std::vector<Piece> pieces{};
+    std::pair<std::uint32_t, std::uint32_t> area{};
 };
+
+inline constexpr std::uint32_t kTemplateBase = 0x08000000u;
 
 void generate(const std::vector<Translation> &translations, const CodegenOptions &options);
 

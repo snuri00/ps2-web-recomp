@@ -23,6 +23,9 @@ struct Program {
     }
 };
 
-Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entries, const std::set<std::uint32_t> &dynamic = {});
+// weak entries become code only where they decode as code, like the
+// candidates the analysis finds itself
+Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entries, const std::set<std::uint32_t> &dynamic = {},
+                const std::vector<std::uint32_t> &weak = {});
 
 }

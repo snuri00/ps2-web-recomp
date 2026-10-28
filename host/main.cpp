@@ -24,7 +24,8 @@ int usage() {
                  "              [--disc image.iso] [--memcard card.ps2] [--pal | --ntsc] [--trace-syscalls] [--trace-io] [--trace-threads]\n"
                  "              [--trace-iop] [--trace-iop-hle] [--frames-dir dir] [--frame-every n]\n"
                  "              [--press frame:button[+button][:frames]]... [--window] [--fullscreen]\n"
-                 "              [--save-state frame:file] [--load-state file] [--widescreen] [--patches file]\n");
+                 "              [--save-state frame:file] [--load-state file] [--widescreen] [--patches file]\n"
+                 "with --load-state, the frames of --frames, --press, --axis and --save-state count on from the snapshot's\n");
     return 2;
 }
 
@@ -94,7 +95,15 @@ int main(int argc, char **argv) {
             return 1;
         }
         ps2::boot(entry, args);
-        if (!load_path.empty() && !ps2::load_state(load_path)) return 1;
+        if (!load_path.empty()) {
+            if (!ps2::load_state(load_path)) return 1;
+            // frames given along with a snapshot count on from the frame it was taken at
+            const std::uint64_t from = ps2::frame_count();
+            if (ps2::g_options.max_frames) ps2::g_options.max_frames += from;
+            if (ps2::g_options.save_state_frame) ps2::g_options.save_state_frame += from;
+            for (ps2::Press &p : ps2::g_options.presses) p.frame += from;
+            for (ps2::AxisPress &p : ps2::g_options.axis_presses) p.frame += from;
+        }
 #ifdef PS2_PROFILE
         const char *profile = std::getenv("PS2_PROFILE");
         const char *profile_from = std::getenv("PS2_PROFILE_FROM");

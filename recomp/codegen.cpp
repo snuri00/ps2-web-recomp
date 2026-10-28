@@ -1,5 +1,6 @@
 #include "codegen.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <filesystem>
 #include <format>
@@ -74,8 +75,8 @@ struct UnitRow {
 class Generator {
 public:
     Generator(const Translation &t, const CodegenOptions &options)
-        : image_(*t.image), p_(*t.program), links_(t.links), prefix_(t.prefix), relocatable_(t.relocatable), options_(options),
-          layout_(*t.program, options.unit_bits) {}
+        : image_(*t.image), p_(*t.program), links_(t.links), prefix_(t.prefix), relocatable_(t.relocatable), window_(t.fixed_module),
+          template_(t.template_module), options_(options), layout_(*t.program, options.unit_bits) {}
 
     std::vector<UnitRow> run() {
         add_required_entries();
@@ -94,6 +95,10 @@ private:
     std::string table_name(std::uint32_t u) const { return std::format("{}entries_{:04X}", prefix_, u); }
     std::string pc(std::uint32_t a) const { return relocatable_ ? std::format("(B + {})", hex(a)) : hex(a); }
     std::string rebase() const { return relocatable_ ? "c.base = B; " : ""; }
+    // a template's j/jal outside itself goes where its word says, the same in every place
+    std::string target(const Insn &i, std::uint32_t t) const {
+        return template_ && (i.op == J || i.op == Jal) && (t < p_.base || t >= p_.end) ? hex(t) : pc(t);
+    }
 
     const Link *link_at(std::uint32_t a) const {
         if (!links_) return nullptr;
@@ -234,7 +239,8 @@ private:
                 falls = fl != Flow::Jump && fl != Flow::JumpRegister;
                 skip = true;
                 if (falls && (labels_.count(a + 4) || !in_unit(a + 4))) {
-                    if (in_unit(a + 8) && p_.is_code(a + 8)) line("goto " + label(a + 8) + ";");
+                    // a+8 gets a label only as code; a seed that decodes data can leave it none
+                    if (in_unit(a + 8) && labels_.count(a + 8) && p_.is_code(a + 8)) line("goto " + label(a + 8) + ";");
                     else exit_to(a + 8);
                     falls = false;
                 }
@@ -257,30 +263,31 @@ private:
 
     void exit_to(std::uint32_t a) {
         flush();
-        if (p_.is_code(a)) {
+        if (p_.is_code(a) && !window_) {
             line(std::format("{}[[clang::musttail]] return {}(c, {}u, depth);", rebase(), unit_name(layout_.unit_of(a)), id_of(a)));
         } else {
             line(std::format("c.pc = {}; [[clang::musttail]] return dispatch(c, 0u, depth);", pc(a)));
         }
     }
 
-    std::string jump(std::uint32_t t, std::uint32_t from) {
-        std::string check = t <= from ? std::format("if (c.budget < 0 && preempt(c)) {{ c.pc = {} | kUnwind; return; }} ", pc(t)) : "";
+    std::string jump(std::uint32_t t, std::uint32_t from, const std::string &where) {
+        std::string check = t <= from ? std::format("if (c.budget < 0 && preempt(c)) {{ c.pc = {} | kUnwind; return; }} ", where) : "";
         if (in_unit(t) && p_.is_code(t)) return check + "goto " + label(t) + ";";
-        if (p_.is_code(t))
+        if (p_.is_code(t) && !window_)
             return check + std::format("{}[[clang::musttail]] return {}(c, {}u, depth);", rebase(), unit_name(layout_.unit_of(t)), id_of(t));
-        return std::format("c.pc = {}; [[clang::musttail]] return dispatch(c, 0u, depth);", pc(t));
+        if (p_.is_code(t)) return check + std::format("c.pc = {}; [[clang::musttail]] return dispatch(c, 0u, depth);", where);
+        return std::format("c.pc = {}; [[clang::musttail]] return dispatch(c, 0u, depth);", where);
     }
 
-    std::string call_to(std::uint32_t t, std::uint32_t ret) {
+    std::string call_to(std::uint32_t t, std::uint32_t ret, const std::string &where) {
         std::string invoke;
-        if (p_.is_code(t))
+        if (p_.is_code(t) && !(window_ && !in_unit(t)))
             invoke = relocatable_ ? std::format("if (depth < kMaxDepth) {{ c.base = B; {}(c, {}u, depth + 1u); }} else {{ c.pc = {}; return; }}",
-                                                unit_name(layout_.unit_of(t)), id_of(t), pc(t))
+                                                unit_name(layout_.unit_of(t)), id_of(t), where)
                                   : std::format("if (depth < kMaxDepth) {}(c, {}u, depth + 1u); else {{ c.pc = {}; return; }}",
-                                                unit_name(layout_.unit_of(t)), id_of(t), pc(t));
+                                                unit_name(layout_.unit_of(t)), id_of(t), where);
         else
-            invoke = std::format("call(c, {}, depth + 1u);", pc(t));
+            invoke = std::format("call(c, {}, depth + 1u);", where);
         return invoke + std::format(" if (c.pc != {}) [[unlikely]] return;", pc(ret));
     }
 
@@ -319,6 +326,12 @@ private:
         const std::string slot = delay(ds);
         const std::string link = std::format("c.r[31].sd[0] = static_cast<std::int32_t>({});", pc(ret));
         const std::uint32_t t = i.branch_target_of();
+        // a game can load another image over the window while a function of it is
+        // still running (MGS2 swaps its stage code that way): before calling out,
+        // window code checks its call is still the one in memory and otherwise
+        // goes on in whatever image is there now
+        if (window_ && !dynamic_jump(a) && (i.op == Jal || i.op == Bltzal || i.op == Bgezal || i.op == Bltzall || i.op == Bgezall))
+            line(std::format("if (ld32({}) != {}) [[unlikely]] {{ c.pc = {}; [[clang::musttail]] return dispatch(c, 0u, depth); }}", pc(a), hex(i.word), pc(a)));
         if (dynamic_jump(a)) {
             const std::string target = std::format("const std::uint32_t t = (({} + 4u) & 0xF0000000u) | ((ld32({}) & 0x03FFFFFFu) << 2);", pc(a), pc(a));
             if (i.op == Jal)
@@ -327,28 +340,29 @@ private:
                 line(std::format("{{ {} {} c.pc = t; [[clang::musttail]] return dispatch(c, 0u, depth); }}", target, slot));
             return;
         }
+        const std::string where = target(i, t);
         switch (i.op) {
         case Jal:
-            line(std::format("{{ {} {} {} }}", link, slot, call_to(t, ret)));
+            line(std::format("{{ {} {} {} }}", link, slot, call_to(t, ret, where)));
             return;
         case Bltzal: case Bgezal:
-            line(std::format("{{ const bool t = {}; {} {} if (t) {{ {} }} }}", condition(i), link, slot, call_to(t, ret)));
+            line(std::format("{{ const bool t = {}; {} {} if (t) {{ {} }} }}", condition(i), link, slot, call_to(t, ret, where)));
             return;
         case Bltzall: case Bgezall:
-            line(std::format("{{ const bool t = {}; {} if (t) {{ {} {} }} }}", condition(i), link, slot, call_to(t, ret)));
+            line(std::format("{{ const bool t = {}; {} if (t) {{ {} {} }} }}", condition(i), link, slot, call_to(t, ret, where)));
             return;
         default:
             break;
         }
         switch (flow(i.op)) {
         case Flow::Branch:
-            line(std::format("{{ const bool t = {}; {} if (t) {{ {} }} }}", condition(i), slot, jump(t, a)));
+            line(std::format("{{ const bool t = {}; {} if (t) {{ {} }} }}", condition(i), slot, jump(t, a, where)));
             break;
         case Flow::BranchLikely:
-            line(std::format("if ({}) {{ {} {} }}", condition(i), slot, jump(t, a)));
+            line(std::format("if ({}) {{ {} {} }}", condition(i), slot, jump(t, a, where)));
             break;
         case Flow::Jump:
-            line(std::format("{{ {} {} }}", slot, jump(t, a)));
+            line(std::format("{{ {} {} }}", slot, jump(t, a, where)));
             break;
         case Flow::JumpRegister:
             if (i.rs() == 31) {
@@ -773,6 +787,10 @@ private:
     const Links *links_;
     std::string prefix_;
     bool relocatable_;
+    // A window image is proven unit by unit, so control leaving a unit goes
+    // through dispatch, which proves the unit it enters.
+    bool window_;
+    bool template_;
     const CodegenOptions &options_;
     Layout layout_;
     std::vector<std::map<std::uint32_t, std::uint16_t>> ids_;
@@ -793,6 +811,13 @@ void generate(const std::vector<Translation> &translations, const CodegenOptions
     table << "#include \"units.hpp\"\n\nnamespace gen {\n\n";
     std::size_t written = 0, main_units = 0, module_count = 0;
     std::vector<std::string> unit_names;
+    struct PieceRow {
+        std::uint64_t hash;
+        std::size_t module;
+        std::uint32_t offset, words;
+    };
+    std::vector<PieceRow> pieces;
+    std::pair<std::uint32_t, std::uint32_t> area{UINT32_MAX, 0};
     for (const Translation &t : translations) {
         const std::vector<UnitRow> rows = Generator(t, options).run();
         written += rows.size();
@@ -812,13 +837,26 @@ void generate(const std::vector<Translation> &translations, const CodegenOptions
         table << "const std::uint32_t " << t.prefix << "checks[] = {";
         for (const auto &[at, value] : t.checks) table << std::format("{}, {}, ", hex(at), hex(value));
         table << "};\n\n";
-        modules << std::format("    {{\"{}\", {}, {}, {}checks, {}u, {}units, {}u}},\n", t.name, hex(t.fixed_base), hex(t.size), t.prefix, t.checks.size(), t.prefix, rows.size());
+        modules << std::format("    {{\"{}\", {}, {}, {}checks, {}u, {}units, {}u, {}u}},\n", t.name, hex(t.fixed_base), hex(t.size), t.prefix, t.checks.size(),
+                               t.prefix, rows.size(), t.template_module ? 1 : 0);
+        if (t.template_module) {
+            for (const Translation::Piece &p : t.pieces) pieces.push_back({p.hash, module_count, p.offset, p.words});
+            area = {std::min(area.first, t.area.first), std::max(area.second, t.area.second)};
+        }
         ++module_count;
     }
     header << "}\n";
     if (module_count) table << "const ps2::ModuleInfo kModules[] = {\n" << modules.str() << "};\n\n";
+    if (!pieces.empty()) {
+        std::sort(pieces.begin(), pieces.end(), [](const PieceRow &a, const PieceRow &b) { return a.hash < b.hash; });
+        table << "const ps2::TemplatePiece kTemplatePieces[] = {\n";
+        for (const PieceRow &p : pieces) table << std::format("    {{0x{:016X}ull, {}u, {}, {}u}},\n", p.hash, p.module, hex(p.offset), p.words);
+        table << "};\n\n";
+    }
     table << "}\n\nvoid register_generated_code() { ps2::register_units(gen::kUnits, " << main_units << "u);";
     if (module_count) table << " ps2::register_modules(gen::kModules, " << module_count << "u);";
+    if (!pieces.empty())
+        table << std::format(" ps2::register_templates(gen::kTemplatePieces, {}u, {}, {});", pieces.size(), hex(area.first), hex(area.second));
     table << " }\n";
     write_if_changed(fs::path(options.output) / "units.hpp", header.str());
     write_if_changed(fs::path(options.output) / "table.cpp", table.str());

@@ -26,12 +26,16 @@ options:
   --pnach-section S  also apply the patches under [S] in those files, the way
                      enabling them in PCSX2 does; lines outside any section
                      always apply
+  --state FILE       start the exploring runs from this machine snapshot (a
+                     state file, .gz is fine) instead of from boot, with the
+                     memory card <name>.ps2 beside it if there is one; --frames
+                     and --press frames count on from the snapshot's frame
 EOF
 }
 
 [ $# -ge 2 ] || { usage; exit 2; }
 name="$1"; source_path="$2"; shift 2
-frames=3600; rounds=8; explore=1; web=1; presses=(); pnach=()
+frames=3600; rounds=8; explore=1; web=1; presses=(); pnach=(); state=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --frames) frames="$2"; shift ;;
@@ -41,6 +45,7 @@ while [ $# -gt 0 ]; do
     --native-only) web=0 ;;
     --pnach) pnach+=("$(realpath "$2")"); shift ;;
     --pnach-section) pnach=(--section "$2" "${pnach[@]}"); shift ;;
+    --state) state="$(realpath "$2")"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
@@ -103,13 +108,21 @@ if grep -q SNR2 "$elf"; then
   modules=(--modules "$game/modules")
 fi
 overlays=()
-if windows=$(python3 -I "$here/windows.py" list "$elf") && [ -n "$windows" ]; then
+# games/<name>/windows.txt lists code areas a loader fills past the executable
+extra_windows=()
+[ -f "$game/windows.txt" ] && extra_windows=(--extra "$game/windows.txt")
+if windows=$(python3 -I "$here/windows.py" list "$elf" "${extra_windows[@]}") && [ -n "$windows" ]; then
   mkdir -p "$game/overlays"
   overlays=(--overlays "$game/overlays")
   echo "code windows the game rewrites: $(echo "$windows" | tr '\n' ' ')"
 fi
 
-translate() { "$tools/eerecomp" "$elf" --entries "$game/entries.txt" "${modules[@]}" "${overlays[@]}" --out "$generated" | tail -1; }
+# games/<name>/templates: code the game links to another address in each image
+# of an area (MGS3's stages), built from those images by the template builder
+templates=()
+[ -d "$game/templates" ] && templates=(--templates "$game/templates")
+
+translate() { "$tools/eerecomp" "$elf" --entries "$game/entries.txt" "${modules[@]}" "${overlays[@]}" "${templates[@]}" --out "$generated" | tail -1; }
 
 echo "== [3/6] machine code to C++"
 touch "$game/entries.txt"
@@ -125,14 +138,31 @@ build_native() {
 
 echo "== [4/6] exploring"
 if [ "$explore" = 1 ]; then
+  start=()
+  if [ -n "$state" ]; then
+    # a snapshot holds no memory card, the page uploads the card beside it as <name>.ps2
+    case "$state" in
+      *.gz) gzip -dc "$state" > "$game/explore-start.state" ;;
+      *) cp "$state" "$game/explore-start.state" ;;
+    esac
+    start=(--load-state "$game/explore-start.state")
+  fi
+  card="${state%.gz}"; card="${card%.state}.ps2"
   for ((round = 1; round <= rounds; round++)); do
     build_native
     rm -f "$game/misses.txt" "$game/explore.ps2" "$game/explore_ram.bin"
+    if [ -n "$state" ] && [ -f "$card" ]; then cp "$card" "$game/explore.ps2"; fi
     PS2_DUMP="$game/explore_ram.bin" PS2_GPU_LOW_POWER=1 PS2_VU_RECORD="$game/vu1" "$native/ps2run" "$elf" --disc "$iso" --misses "$game/misses.txt" --memcard "$game/explore.ps2" \
-      --frames "$frames" "${presses[@]}" --frames-dir "$game/shots" --frame-every 300 > "$game/explore.log" 2>&1 || true
+      "${start[@]}" --frames "$frames" "${presses[@]}" --frames-dir "$game/shots" --frame-every 300 > "$game/explore.log" 2>&1 || true
     captured=0
     if [ ${#overlays[@]} -gt 0 ] && [ -f "$game/explore_ram.bin" ]; then
-      captured=$(python3 -I "$here/windows.py" capture "$elf" "$game/explore_ram.bin" "$game/overlays" "$game/misses.txt" | grep -c '^captured' || true)
+      # games/<name>/seed_pointers: handlers called mid-function through pointers (MGS3) cost a run each
+      if [ -f "$game/seed_pointers" ] && [ -f "$game/windows.txt" ] && grep -q 'missing code' "$game/explore.log"; then
+        python3 -I "$here/seed_pointers.py" "$game/explore_ram.bin" "$game/windows.txt" "$game/misses.txt" --extra "$game/seed_pointers" > /dev/null
+      fi
+      captured=$(python3 -I "$here/windows.py" capture "$elf" "$game/explore_ram.bin" "${extra_windows[@]}" "$game/overlays" "$game/misses.txt" | grep -c '^captured' || true)
+      # functions of a new image reached only through pointers would cost a run each
+      [ "$captured" -gt 0 ] && python3 -I "$here/seed_windows.py" "$game/overlays" "$game/entries.txt" > /dev/null
     fi
     reason=$(sed -n 's/^\[ee\] halted: //p' "$game/explore.log" | head -1)
     added=$(python3 -I - "$game/entries.txt" "$game/misses.txt" <<'EOF'

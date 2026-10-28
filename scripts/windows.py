@@ -16,6 +16,12 @@ window, and the runtime picks the image in place by its check words.
 
 The RAM dump is the one the runner writes with PS2_DUMP, so at a halt it holds
 exactly the image the game was running when it called the missing entry.
+
+  --extra <file>                     also treat the areas listed in <file> as
+                                     windows, "base size" in hex per line: code
+                                     a loader copies past the executable, which
+                                     no segment announces; the image is always
+                                     the whole listed size
 """
 import binascii
 import os
@@ -56,22 +62,37 @@ def extent(dump, base, cap=0x40000):
     return size or UNIT
 
 
+def extra_windows(path):
+    out = []
+    for line in open(path):
+        words = line.split('#', 1)[0].split()
+        if len(words) == 2:
+            out.append((int(words[0], 16) & ~(UNIT - 1), int(words[1], 16)))
+    return out
+
+
 def main() -> None:
+    extra = []
+    if '--extra' in sys.argv:
+        at = sys.argv.index('--extra')
+        extra = extra_windows(sys.argv[at + 1])
+        del sys.argv[at:at + 2]
     if len(sys.argv) not in (3, 5, 6) or sys.argv[1] not in ('list', 'capture'):
         sys.exit(__doc__)
     mode = sys.argv[1]
     elf = open(sys.argv[2], 'rb').read()
     wins = windows(elf)
     if mode == 'list':
-        for base, size in wins:
+        for base, size in wins + extra:
             print('%08x %x' % (base, size))
         return
 
     dump = open(sys.argv[3], 'rb').read()
     outdir = sys.argv[4]
     misses = sys.argv[5] if len(sys.argv) > 5 else None
-    for base, _ in wins:
-        size = extent(dump, base)
+    fixed = dict(extra)
+    for base, _ in wins + extra:
+        size = fixed.get(base) or extent(dump, base)
         blob = dump[base:base + size]
         if not any(blob):
             continue

@@ -149,8 +149,67 @@ std::vector<std::pair<std::uint32_t, std::uint32_t>> checks_for_window(const Snr
     return checks;
 }
 
+std::uint32_t template_mask(std::uint32_t w) {
+    const std::uint32_t op = w >> 26;
+    if (op == 2 || op == 3) return w & 0xFC000000u;
+    if (op == 0x0f || op == 0x08 || op == 0x09 || op == 0x0d || op == 0x18 || op == 0x19 || op == 0x1a || op == 0x1b || op == 0x1e || op == 0x1f ||
+        (op >= 0x20 && op <= 0x3f))
+        return w & 0xFFFF0000u;
+    return w;
+}
+
+// Templates (T<n>.bin + T<n>.txt, see the template builder): code a game links
+// to another address in each image of an area, translated once at kTemplateBase.
+struct TemplateFile {
+    std::string name;
+    std::vector<std::uint8_t> bytes;
+    std::set<std::uint32_t> fields, dynamic, internal;
+    std::vector<std::uint32_t> seeds, weak;
+    std::vector<Translation::Piece> pieces;
+    std::pair<std::uint32_t, std::uint32_t> area{UINT32_MAX, 0};
+};
+
+std::vector<TemplateFile> read_templates(const std::string &dir) {
+    std::vector<std::filesystem::path> paths;
+    for (const auto &entry : std::filesystem::directory_iterator(dir))
+        if (entry.path().extension() == ".txt" && entry.path().stem().string().starts_with("T")) paths.push_back(entry.path());
+    std::sort(paths.begin(), paths.end());
+    std::vector<TemplateFile> out;
+    for (const auto &path : paths) {
+        TemplateFile t;
+        t.name = path.stem().string();
+        std::ifstream bin(std::filesystem::path(path).replace_extension(".bin"), std::ios::binary);
+        t.bytes = std::vector<std::uint8_t>{std::istreambuf_iterator<char>(bin), {}};
+        std::ifstream meta(path);
+        std::string kind, image;
+        std::uint32_t size = 0;
+        while (meta >> kind) {
+            auto num = [&] { std::string s; meta >> s; return static_cast<std::uint32_t>(std::stoul(s, nullptr, 16)); };
+            if (kind == "size") size = num();
+            else if (kind == "piece") {
+                const std::uint32_t at = num(), words = num();
+                std::string h;
+                meta >> h;
+                t.pieces.push_back({kTemplateBase + at, words, std::stoull(h, nullptr, 16)});
+            } else if (kind == "field") t.fields.insert(kTemplateBase + num());
+            else if (kind == "dyn") t.dynamic.insert(kTemplateBase + num());
+            else if (kind == "int") t.internal.insert(kTemplateBase + num());
+            else if (kind == "seed") t.seeds.push_back(kTemplateBase + num());
+            else if (kind == "weak") t.weak.push_back(kTemplateBase + num());
+            else if (kind == "at") {
+                meta >> image;
+                const std::uint32_t at = num();
+                t.area = {std::min(t.area.first, at), std::max(t.area.second, at + size)};
+            } else std::getline(meta, kind);
+        }
+        if (t.bytes.size() != size || size < 8) continue;
+        out.push_back(std::move(t));
+    }
+    return out;
+}
+
 int usage() {
-    std::fprintf(stderr, "usage: eerecomp <elf> [--entries file] [--modules dir] [--overlays dir] [--probes file] [--out dir] [--stats]\n");
+    std::fprintf(stderr, "usage: eerecomp <elf> [--entries file] [--modules dir] [--overlays dir] [--templates dir] [--probes file] [--out dir] [--stats]\n");
     return 2;
 }
 
@@ -158,7 +217,7 @@ int usage() {
 
 int main(int argc, char **argv) {
     if (argc < 2) return usage();
-    std::string elf_path = argv[1], entries_path, out, probes_path, modules_dir, overlays_dir;
+    std::string elf_path = argv[1], entries_path, out, probes_path, modules_dir, overlays_dir, templates_dir;
     bool stats = false;
     for (int i = 2; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -168,6 +227,7 @@ int main(int argc, char **argv) {
         else if (arg == "--probes" && i + 1 < argc) probes_path = argv[++i];
         else if (arg == "--modules" && i + 1 < argc) modules_dir = argv[++i];
         else if (arg == "--overlays" && i + 1 < argc) overlays_dir = argv[++i];
+        else if (arg == "--templates" && i + 1 < argc) templates_dir = argv[++i];
         else return usage();
     }
 
@@ -264,20 +324,62 @@ int main(int argc, char **argv) {
                 if ((f == Flow::Jump || f == Flow::Call) && t >= program.base && t < program.end && !program.entries.count(t)) called_out.insert(t);
             }
         }
-        // Window code jumps into the program at places the program may reach
-        // only through pointers, if at all: entry points of it all the same.
-        if (!called_out.empty()) {
-            std::vector<std::uint32_t> seeds = entries.main;
-            seeds.insert(seeds.end(), called_out.begin(), called_out.end());
-            program = analyse(image, seeds, dynamic_sites(imports));
-            std::printf("%zu entry points of the program called from code windows\n", called_out.size());
-        }
         if (!overlays.empty()) {
             std::size_t called_entries = 0;
             for (const auto &[base, seeds] : window_seeds) called_entries += seeds.size();
             std::printf("%zu distinct code window images of %zu captured, code %zu instructions (%zu KiB), %zu entry points called from the program\n",
                         std::count_if(overlays.begin(), overlays.end(), [&](const Snr2Module &o) { return representatives.count(o.name) != 0; }),
                         overlays.size(), overlay_code, overlay_code * 4 / 1024, called_entries);
+        }
+
+        std::vector<TemplateFile> templates = templates_dir.empty() ? std::vector<TemplateFile>{} : read_templates(templates_dir);
+        std::deque<Links> template_links;
+        std::size_t template_code = 0;
+        for (TemplateFile &t : templates) {
+            const std::uint32_t size = static_cast<std::uint32_t>(t.bytes.size());
+            images.push_back(Image::raw(kTemplateBase, t.bytes, {kTemplateBase, kTemplateBase + size}));
+            Links &links = template_links.emplace_back();
+            for (const std::uint32_t at : t.fields)
+                links[at] = {(*images.back().word(at) >> 26) == 0x0f ? Fix::High : Fix::Low, true, 0};
+            for (const std::uint32_t at : t.dynamic) links[at] = {Fix::Jump, true, 0};
+            std::vector<std::uint32_t> seeds = t.seeds;
+            if (const auto it = entries.modules.find(t.name); it != entries.modules.end()) seeds.insert(seeds.end(), it->second.begin(), it->second.end());
+            programs.push_back(analyse(images.back(), seeds, dynamic_sites(links), t.weak));
+            const Program &p = programs.back();
+            const std::size_t code = code_size(p);
+            if (!code) continue;
+            template_code += code;
+            std::vector<std::pair<std::uint32_t, std::uint32_t>> checks;
+            for (std::uint32_t pc = p.base; pc < p.end; pc += 4) {
+                if (!p.is_code(pc)) continue;
+                const std::uint32_t word = *images.back().word(pc);
+                if (t.fields.count(pc) || t.dynamic.count(pc) || t.internal.count(pc)) checks.emplace_back(pc | 1u, template_mask(word));
+                else checks.emplace_back(pc, word);
+            }
+            Translation tr{&images.back(), &programs.back(), &links, "m_" + t.name + "_", true, t.name, size, std::move(checks)};
+            tr.template_module = true;
+            tr.pieces = t.pieces;
+            tr.area = t.area;
+            translations.push_back(std::move(tr));
+            for (std::uint32_t pc = p.base; pc < p.end; pc += 4) {
+                if (!p.is_code(pc) || t.dynamic.count(pc)) continue;
+                const Insn i = decode(*images.back().word(pc), pc);
+                const Flow f = flow(i.op);
+                const std::uint32_t target = i.jump_target();
+                if ((f == Flow::Jump || f == Flow::Call) && target >= program.base && target < program.end && !program.entries.count(target)) called_out.insert(target);
+            }
+        }
+        if (!templates.empty())
+            std::printf("%zu templates, %zu with code, code %zu instructions (%zu KiB)\n", templates.size(),
+                        static_cast<std::size_t>(std::count_if(translations.begin(), translations.end(), [](const Translation &t) { return t.template_module; })),
+                        template_code, template_code * 4 / 1024);
+        // Window and template code jumps into the program at places the program
+        // may reach only through pointers, if at all: entry points of it all the same.
+        if (!called_out.empty()) {
+            std::vector<std::uint32_t> seeds = entries.main;
+            seeds.insert(seeds.end(), called_out.begin(), called_out.end());
+            program = analyse(image, seeds, dynamic_sites(imports));
+            std::printf("%zu entry points of the program called from code windows and templates\n", called_out.size());
         }
 
         if (!out.empty()) {
