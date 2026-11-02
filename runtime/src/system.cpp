@@ -388,7 +388,10 @@ bool load_elf(const std::string &path, std::uint32_t &entry) {
             continue;
         }
         const std::uint32_t vaddr = physical(u32(ph + 8));
-        if (vaddr + memsz > kRamSize) return false;
+        if (vaddr + memsz > kRamSize) {
+            if (!filesz) continue;
+            return false;
+        }
         std::memcpy(g_ram + vaddr, data.data() + offset, filesz);
         watch_span(vaddr, filesz, "boot:load_exec");
         std::memset(g_ram + vaddr + filesz, 0, memsz - filesz);
