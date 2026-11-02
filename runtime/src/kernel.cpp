@@ -258,7 +258,7 @@ void add_handler(Cpu &c, std::vector<Handler> &list) {
 void remove_handler(Cpu &c, std::vector<Handler> &list) {
     const int id = static_cast<int>(arg(c, 1));
     list.erase(std::remove_if(list.begin(), list.end(), [&](const Handler &h) { return h.id == id; }), list.end());
-    ret(c, 0);
+    ret(c, std::count_if(list.begin(), list.end(), [&](const Handler &h) { return h.cause == arg(c, 0); }));
 }
 
 void fire_alarm(int id);
