@@ -46,21 +46,35 @@ bool tag_data_in_ring(std::uint32_t chcr) {
     return id == 1 || id == 7;
 }
 
+bool in_vu_memory(std::uint32_t address) { return !(address & 0x80000000u) && (address & 0x1FFF0000u) == 0x11000000u; }
+
+std::uint8_t *vu_memory(std::uint32_t address) {
+    switch ((address >> 12) & 0xCu) {
+    case 0x0: return g_vu0_code + (address & 0xFF0u);
+    case 0x4: return g_vu0_mem + (address & 0xFF0u);
+    case 0x8: return g_vu1_code + (address & 0x3FF0u);
+    default: return g_vu1_mem + (address & 0x3FF0u);
+    }
+}
+
 const std::uint8_t *source(std::uint32_t address) {
     if (address & 0x80000000u) return g_spr + (address & (kScratchpadSize - 1));
+    if (in_vu_memory(address)) return vu_memory(address);
     return g_ram + (address & (kRamSize - 16));
 }
 
 std::uint8_t *target(std::uint32_t address) {
     if (address & 0x80000000u) return g_spr + (address & (kScratchpadSize - 1));
+    if (in_vu_memory(address)) return vu_memory(address);
     return g_ram + (address & (kRamSize - 16));
 }
 
 void deliver(int ch, std::uint32_t address, std::uint32_t qwc) {
     if (!qwc) return;
     static std::vector<std::uint8_t> buffer;
+    if (in_vu_memory(address)) flush_vu_thread();
     const std::size_t bytes = static_cast<std::size_t>(qwc) * 16;
-    const std::size_t room = (address & 0x80000000u) ? kScratchpadSize - (address & (kScratchpadSize - 1)) : kRamSize - (address & (kRamSize - 16));
+    const std::size_t room = (address & 0x80000000u) ? kScratchpadSize - (address & (kScratchpadSize - 1)) : in_vu_memory(address) ? 0 : kRamSize - (address & (kRamSize - 16));
     const std::uint8_t *data = source(address);
     if (bytes > room || ch == 9) {
         buffer.resize(bytes);
@@ -154,6 +168,7 @@ void run_from_spr_chain() {
 
 void run_interleave(int ch) {
     Channel &c = g_ch[ch];
+    if (in_vu_memory(c.madr)) flush_vu_thread();
     const std::uint32_t transfer = (g_sqwc >> 16) & 0xFFu, skip = g_sqwc & 0xFFu;
     for (std::uint32_t i = 0; i < c.qwc; ++i) {
         std::uint8_t *spr = g_spr + (c.sadr & (kScratchpadSize - 1));

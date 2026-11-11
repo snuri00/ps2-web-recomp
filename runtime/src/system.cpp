@@ -511,6 +511,7 @@ void start_vu_thread() { gs::queue::vu().start(32u << 20); }
 
 std::atomic<double> g_vu_idle_ms{0.0};
 
+void flush_vu_thread() { sync_vu_thread(); }
 double vu_thread_idle_ms() { return g_vu_idle_ms.load(); }
 double thread_waited_ms(int role) { return gs::queue::waited_ms(static_cast<gs::queue::Role>(role)); }
 std::uint64_t vu1_interpreted_calls() { return vu::interpreted_calls(); }
