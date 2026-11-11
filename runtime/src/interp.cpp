@@ -364,6 +364,7 @@ std::set<std::uint32_t> g_reported;
 void interpret(Cpu &c, std::uint32_t, std::uint32_t depth) {
     std::uint32_t pc = c.pc;
     if (g_reported.insert(pc).second) std::fprintf(stderr, "[ee] interpreting untranslated code at 0x%08X (ra 0x%08X)\n", pc, c.r[31].w[0]);
+    std::int64_t pending = 0;
     for (bool check = false;; check = true) {
         // back to translated code at the first branch target that has some
         if (check && translated(pc)) {
@@ -373,12 +374,18 @@ void interpret(Cpu &c, std::uint32_t, std::uint32_t depth) {
         for (;;) {
             const Insn i = recomp::decode(ld32(pc), pc);
             const Flow fl = recomp::flow(i.op);
-            --c.budget;
             if (fl == Flow::None) {
+                if (i.op == Syscall) {
+                    c.budget -= pending;
+                    pending = 0;
+                }
                 if (!simple(c, i)) return;
+                ++pending;
                 pc += 4u;
                 continue;
             }
+            c.budget -= i.op == Eret ? pending : pending + 2;
+            pending = 0;
             if (i.op == Eret) {
                 c.pc = eret(c);
                 [[clang::musttail]] return dispatch(c, 0u, depth);
@@ -392,7 +399,6 @@ void interpret(Cpu &c, std::uint32_t, std::uint32_t depth) {
                 stop(c, pc + 4u, "unsupported delay slot");
                 return;
             }
-            --c.budget;
             const std::uint32_t ret = pc + 8u, t = i.branch_target_of();
             auto slot = [&] { return simple(c, ds); };
             auto link = [&](std::uint32_t r) { if (r) c.r[r].sd[0] = static_cast<std::int32_t>(ret); };
