@@ -179,8 +179,9 @@ private:
                 const std::uint32_t t = i.branch_target_of();
                 if (in_unit(t) && p_.is_code(t)) labels_.insert(t);
             }
-            if (has_delay_slot(i.op) && labels_.count(a + 4) && in_unit(a + 8)) labels_.insert(a + 8);
         }
+        for (std::uint32_t a = base_; a < end; a += 4)
+            if (p_.is_code(a) && has_delay_slot(at(a).op) && labels_.count(a + 4) && in_unit(a + 8)) labels_.insert(a + 8);
 
         out_.str({});
         out_ << "#include \"units.hpp\"\n\nnamespace gen {\n\nusing namespace ps2;\n\n";
