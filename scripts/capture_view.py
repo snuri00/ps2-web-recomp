@@ -69,6 +69,13 @@ def main():
                 Image.open(os.path.join(folder, name)).save(os.path.join(folder, png))
                 name = png
             rows.append('<tr class="image"><td colspan="3">%s<br><img src="%s"></td></tr>' % (html.escape(fields[2] + ': ' + name), html.escape(name)))
+        elif fields[0] == 'texture':
+            name = fields[1]
+            if Image:
+                png = name[:-4] + '.png'
+                Image.open(os.path.join(folder, name)).save(os.path.join(folder, png))
+                name = png
+            rows.append('<tr class="image"><td colspan="3">%s<br><img src="%s"></td></tr>' % (html.escape(fields[2] + ': ' + name), html.escape(name)))
         elif fields[0] in ('vblank', 'transfer'):
             rows.append('<tr class="event"><td colspan="3">%s</td></tr>' % html.escape(' '.join(fields)))
         else:

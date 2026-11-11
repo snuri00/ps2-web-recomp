@@ -560,6 +560,27 @@ void dump_target(std::uint64_t frame, int rows, const char *why) {
     std::fprintf(g_log, "image\t%s\t%s\n", name, why);
 }
 
+void dump_texture(const State &s, std::uint64_t tex0) {
+    const std::uint32_t tbp = static_cast<std::uint32_t>(tex0) & 0x3FFFu, tbw = static_cast<std::uint32_t>(tex0 >> 14) & 0x3Fu, psm = static_cast<std::uint32_t>(tex0 >> 20) & 0x3Fu;
+    const std::uint32_t w = std::min(1u << ((tex0 >> 26) & 15u), 1024u), h = std::min(1u << ((tex0 >> 30) & 15u), 1024u), csa = static_cast<std::uint32_t>(tex0 >> 56) & 31u;
+    const bool eight = psm == PSMT8 || psm == PSMT8H, four = psm == PSMT4 || psm == PSMT4HL || psm == PSMT4HH;
+    char name[96];
+    std::snprintf(name, sizeof name, "tex_%06llu_%04X_psm%02X.ppm", static_cast<unsigned long long>(g_images++), tbp, psm);
+    std::FILE *f = std::fopen((g_dir + "/" + name).c_str(), "wb");
+    if (!f) return;
+    std::fprintf(f, "P6\n%u %u\n255\n", w, h);
+    for (std::uint32_t y = 0; y < h; ++y)
+        for (std::uint32_t x = 0; x < w; ++x) {
+            std::uint32_t c = read_pixel(psm, tbp, tbw, x, y);
+            if (eight) c = s.clut[c & 255u];
+            else if (four) c = s.clut[(csa * 16u + (c & 15u)) & 511u];
+            const std::uint8_t px[3] = {static_cast<std::uint8_t>(c), static_cast<std::uint8_t>(c >> 8), static_cast<std::uint8_t>(c >> 16)};
+            std::fwrite(px, 1, 3, f);
+        }
+    std::fclose(f);
+    std::fprintf(g_log, "texture\t%s\tdraw %llu\n", name, static_cast<unsigned long long>(g_draws));
+}
+
 std::uint64_t target_of(std::uint64_t frame) { return frame & 0x3F3F01FFull; }
 
 void flush() {
@@ -606,6 +627,8 @@ void prim(const State &s, int needed) {
         b.first = g_primitives;
         b.x0 = b.y0 = b.u0 = b.v0 = 1e30f;
         b.x1 = b.y1 = b.u1 = b.v1 = -1e30f;
+        static const bool textures = std::getenv("PS2_CAPTURE_TEXTURES") != nullptr;
+        if (textures && (prim & 0x10u)) dump_texture(s, x.tex0);
     }
     ++b.count;
     const float ox = static_cast<float>(x.xyoffset & 0xFFFFu) / 16.0f, oy = static_cast<float>((x.xyoffset >> 32) & 0xFFFFu) / 16.0f;
