@@ -81,7 +81,7 @@ void unit_checks(const ModuleInfo &m, std::uint32_t offset, std::uint32_t &from,
         from = to = 0;
         return;
     }
-    from = first_check(m, u->base);
+    from = static_cast<std::int32_t>(u->base) < 0 ? 0u : first_check(m, u->base);
     to = first_check(m, u->base + u->size + 4u);
 }
 
