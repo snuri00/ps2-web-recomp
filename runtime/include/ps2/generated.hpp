@@ -33,10 +33,38 @@ struct ModuleInfo {
     std::uint32_t check_count;
     const UnitInfo *units;
     std::uint32_t count;
+    // kModuleTemplate: code a game links to another address in each image of
+    // an area, translated at kTemplateBase. A check whose offset has bit 0 set
+    // compares the word under template_mask, for words read at run time.
+    std::uint32_t flags = 0;
 };
+
+inline constexpr std::uint32_t kModuleTemplate = 1u;
+inline constexpr std::uint32_t kTemplateBase = 0x08000000u;
+
+// A piece of a template: the words from just past a "jr ra" and its delay slot
+// to the next ones. Found at run time by the hash of its masked words.
+struct TemplatePiece {
+    std::uint64_t hash;
+    std::uint32_t module;
+    std::uint32_t offset;
+    std::uint32_t words;
+};
+
+// the address fields a game relinks: j/jal targets, immediates of lui, addi(u),
+// ori, daddi(u) and loads/stores
+inline std::uint32_t template_mask(std::uint32_t w) {
+    const std::uint32_t op = w >> 26;
+    if (op == 2 || op == 3) return w & 0xFC000000u;
+    if (op == 0x0f || op == 0x08 || op == 0x09 || op == 0x0d || op == 0x18 || op == 0x19 || op == 0x1a || op == 0x1b || op == 0x1e || op == 0x1f ||
+        (op >= 0x20 && op <= 0x3f))
+        return w & 0xFFFF0000u;
+    return w;
+}
 
 void register_units(const UnitInfo *units, std::uint32_t count);
 void register_modules(const ModuleInfo *modules, std::uint32_t count);
+void register_templates(const TemplatePiece *pieces, std::uint32_t count, std::uint32_t area_begin, std::uint32_t area_end);
 
 void dispatch(Cpu &c, std::uint32_t entry, std::uint32_t depth);
 void call(Cpu &c, std::uint32_t target, std::uint32_t depth);
