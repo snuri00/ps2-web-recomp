@@ -110,6 +110,7 @@ if windows=$(python3 -I "$here/windows.py" list "$elf") && [ -n "$windows" ]; th
   mkdir -p "$game/overlays"
   overlays=(--overlays "$game/overlays")
   echo "code windows the game rewrites: $(echo "$windows" | tr '\n' ' ')"
+  python3 -I "$here/windows.py" disc "$elf" "$iso" "$game/overlays"
 fi
 
 translate() { "$tools/eerecomp" "$elf" --entries "$game/entries.txt" "${modules[@]}" "${overlays[@]}" --out "$generated" | tail -1; }

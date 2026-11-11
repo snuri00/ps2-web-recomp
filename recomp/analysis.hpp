@@ -23,6 +23,6 @@ struct Program {
     }
 };
 
-Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entries, const std::set<std::uint32_t> &dynamic = {});
+Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entries, const std::set<std::uint32_t> &dynamic = {}, const std::vector<std::uint32_t> &likely_entries = {});
 
 }

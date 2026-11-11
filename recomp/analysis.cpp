@@ -193,17 +193,22 @@ std::vector<std::uint32_t> frame_starts(const Image &image, std::uint32_t begin,
     std::vector<std::uint32_t> found;
     for (std::uint32_t pc = begin + 8; pc < end; pc += 4) {
         const std::uint32_t w = image.word(pc).value_or(0);
-        if ((w & 0xFFFF8000u) != 0x27BD8000u && (w & 0xFFFF8000u) != 0x67BD8000u) continue;
+        const bool frame = (w & 0xFFFF8000u) == 0x27BD8000u || (w & 0xFFFF8000u) == 0x67BD8000u;
+        if (!frame && (!w || (pc & 15u))) continue;
         std::uint32_t at = pc - 4;
         while (at > begin + 4 && pc - at < 20 && image.word(at).value_or(1) == 0) at -= 4;
-        if (image.word(at).value_or(0) == 0x03E00008u || image.word(at - 4).value_or(0) == 0x03E00008u) found.push_back(pc);
+        const auto ends = [&](std::uint32_t a) {
+            const std::uint32_t last = image.word(a).value_or(0);
+            return last == 0x03E00008u || (last >> 26) == 2u || (last >> 16) == 0x1000u;
+        };
+        if (ends(at) || ends(at - 4)) found.push_back(pc);
     }
     return found;
 }
 
 }
 
-Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entries, const std::set<std::uint32_t> &dynamic) {
+Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entries, const std::set<std::uint32_t> &dynamic, const std::vector<std::uint32_t> &likely_entries) {
     Program p;
     p.dynamic = dynamic;
     p.base = UINT32_MAX;
@@ -235,6 +240,7 @@ Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entr
 
     for (int round = 0; round < 8; ++round) {
         std::vector<std::uint32_t> candidates = address_constants(image, p);
+        candidates.insert(candidates.end(), likely_entries.begin(), likely_entries.end());
         const std::vector<std::uint32_t> branches = computed_branches(image, p);
         candidates.insert(candidates.end(), branches.begin(), branches.end());
         const std::vector<std::uint32_t> frames = frame_starts(image, text_begin, text_end);

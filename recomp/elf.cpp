@@ -80,6 +80,19 @@ Image Image::raw(std::uint32_t address, std::vector<std::uint8_t> bytes, std::pa
     return image;
 }
 
+Image Image::split(std::uint32_t address, const std::vector<std::uint8_t> &bytes, std::uint32_t code_begin, std::uint32_t code_end) {
+    Image image;
+    const auto add = [&](std::uint32_t from, std::uint32_t to, bool executable) {
+        if (from >= to) return;
+        image.segments_.push_back(Segment{address + from, std::vector<std::uint8_t>(bytes.begin() + from, bytes.begin() + to), executable, to - from});
+    };
+    add(0, code_begin, false);
+    add(code_begin, code_end, true);
+    add(code_end, static_cast<std::uint32_t>(bytes.size()), false);
+    image.text_ = {address + code_begin, address + code_end};
+    return image;
+}
+
 std::optional<std::uint32_t> Image::word(std::uint32_t address) const {
     for (const auto &segment : segments_) {
         if (address >= segment.address && address - segment.address + 4 <= segment.bytes.size()) {

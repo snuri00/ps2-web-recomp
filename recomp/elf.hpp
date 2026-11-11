@@ -20,6 +20,7 @@ class Image {
 public:
     static Image load(const std::string &path);
     static Image raw(std::uint32_t address, std::vector<std::uint8_t> bytes, std::pair<std::uint32_t, std::uint32_t> text);
+    static Image split(std::uint32_t address, const std::vector<std::uint8_t> &bytes, std::uint32_t code_begin, std::uint32_t code_end);
 
     std::uint32_t entry() const { return entry_; }
     const std::vector<Segment> &segments() const { return segments_; }
