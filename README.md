@@ -1,5 +1,7 @@
 # PS2 Web Recomp
 
+<a href="https://news.ycombinator.com/item?id=50052251"><img src="https://hackergit.org/badge/snuri00/ps2-web-recomp.svg" alt="Hacker News" height="20"></a>
+
 PlayStation 2 games running in the browser through static recompilation. The game's Emotion Engine machine code is translated ahead of time into C++ and compiled to WebAssembly, so the main CPU is never interpreted; the rest of the console, its operating system and hardware, is emulated by a runtime that draws with WebGPU.
 
 <p align="center">
