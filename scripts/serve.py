@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Serves a web build and a disc image with HTTP range requests.
 
-usage: serve.py <build dir> <disc image> [port] [--host address] [--record <dir for unrecorded VU1 programs>]
+usage: serve.py <build dir> <disc image> [port] [--host address] [--game <games/name>] [--record <dir for unrecorded VU1 programs>]
+
+With --game the page's findings are kept for the next port.sh run: VU1 programs
+the build lacks go to <games/name>/vu1 and entry points its interpreter met to
+<games/name>/entries.txt.
 
 It also relays the messages that connect a host page to the guests it invites
 (/room), so a friend can play along from another browser.
@@ -16,12 +20,21 @@ import shutil
 import sys
 import threading
 import time
+import urllib.parse
 
 RECORD = None
 if '--record' in sys.argv:
     at = sys.argv.index('--record')
     RECORD = os.path.abspath(sys.argv[at + 1])
     del sys.argv[at:at + 2]
+ENTRIES = None
+if '--game' in sys.argv:
+    at = sys.argv.index('--game')
+    game = os.path.abspath(sys.argv[at + 1])
+    del sys.argv[at:at + 2]
+    RECORD = RECORD or os.path.join(game, 'vu1')
+    ENTRIES = os.path.join(game, 'entries.txt')
+ENTRY_LOCK = threading.Lock()
 HOST = '127.0.0.1'
 if '--host' in sys.argv:
     at = sys.argv.index('--host')
@@ -176,7 +189,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 left -= len(chunk)
 
     def do_PUT(self):
-        match = re.match(r'^/vu1/([0-9A-F]{16}_[0-9A-F]{4}\.bin)$', self.path.split('?', 1)[0])
+        path = urllib.parse.unquote(self.path.split('?', 1)[0])
+        entry = re.match(r'^/entry/((?:[A-Za-z0-9_.-]{1,64}:)?[0-9a-f]{1,8})$', path)
+        if entry:
+            if not ENTRIES:
+                self.send_error(501)
+                return
+            with ENTRY_LOCK:
+                known = set(open(ENTRIES).read().split()) if os.path.exists(ENTRIES) else set()
+                if entry.group(1) not in known:
+                    with open(ENTRIES, 'a') as f:
+                        f.write(entry.group(1) + '\n')
+                    print('recorded entry point', entry.group(1), flush=True)
+            self.send_response(201)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        match = re.match(r'^/vu1/([0-9A-F]{16}_[0-9A-F]{4}\.bin)$', path)
         length = int(self.headers.get('Content-Length', '0'))
         if not RECORD or not match or length != 16384:
             self.send_error(501 if not RECORD else 400)

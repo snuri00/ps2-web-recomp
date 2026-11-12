@@ -10,6 +10,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -27,6 +30,33 @@ int usage() {
                  "              [--save-state frame:file] [--load-state file] [--widescreen] [--patches file]\n"
                  "with --load-state, the frames of --frames, --press, --axis and --save-state count on from the snapshot's\n");
     return 2;
+}
+
+std::set<std::string> g_known_entries;
+std::size_t g_new_entries = 0;
+
+std::size_t program_count(const std::string &dir) {
+    std::size_t count = 0;
+    if (dir.empty()) return count;
+    for (const auto &entry : std::filesystem::directory_iterator(dir))
+        if (entry.path().extension() == ".bin") ++count;
+    return count;
+}
+
+std::filesystem::path learn_in_game_folder() {
+    const std::filesystem::path game = std::filesystem::path(ps2::g_options.disc_path).parent_path();
+    const std::filesystem::path entries = game / "entries.txt";
+    if (ps2::g_options.disc_path.empty() || !std::filesystem::exists(entries)) return {};
+    ps2::g_options.interpret = true;
+    if (std::filesystem::is_directory(game / "vu1")) ps2::g_options.vu_record_dir = (game / "vu1").string();
+    std::ifstream file(entries);
+    for (std::string token; file >> token;) g_known_entries.insert(token);
+    ps2::g_options.on_miss = [entries](const std::string &token) {
+        if (!g_known_entries.insert(token).second) return;
+        std::ofstream(entries, std::ios::app) << token << "\n";
+        ++g_new_entries;
+    };
+    return game;
 }
 
 }
@@ -119,7 +149,18 @@ int main(int argc, char **argv) {
 #endif
     };
 #ifdef PS2_WINDOW
-    if (window) return run_window(emulate);
+    if (window) {
+        const std::filesystem::path game = learn_in_game_folder();
+        const std::size_t programs = program_count(ps2::g_options.vu_record_dir);
+        return run_window([&] {
+            const int result = emulate();
+            const std::size_t new_programs = program_count(ps2::g_options.vu_record_dir) - programs;
+            if (g_new_entries || new_programs)
+                std::fprintf(stderr, "[learn] %zu entry points and %zu VU1 programs this build lacks were written to %s, port.sh translates them on its next run\n",
+                             g_new_entries, new_programs, game.string().c_str());
+            return result;
+        });
+    }
 #endif
     return emulate();
 }

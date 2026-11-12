@@ -804,6 +804,11 @@ std::uint32_t itop(int unit) { return g_itop[unit]; }
 
 ProgramFn lookup(std::uint32_t address);
 
+std::string record_dir() {
+    const char *env = std::getenv("PS2_VU_RECORD");
+    return env ? std::string(env) : g_options.vu_record_dir;
+}
+
 std::atomic<std::uint64_t> g_interpreted_calls{0};
 
 std::uint64_t interpreted_calls() { return g_interpreted_calls.load(std::memory_order_relaxed); }
@@ -1035,8 +1040,8 @@ ProgramFn lookup(std::uint32_t address) {
     c.jit = e.jit;
     if (e.candidates.size() < 8) e.candidates.push_back(std::move(c));
     else e.candidates[e.next++ % 8] = std::move(c);
-    static const char *record = std::getenv("PS2_VU_RECORD");
-    if (!e.function && (record || g_options.on_vu_program)) {
+    static const std::string record = record_dir();
+    if (!e.function && (!record.empty() || g_options.on_vu_program)) {
         char name[64];
         std::snprintf(name, sizeof name, "%016llX_%04X.bin", static_cast<unsigned long long>(key), address & 16383u);
         if (g_options.on_vu_program) {
@@ -1067,7 +1072,7 @@ void run_fast(int n, std::uint32_t address) {
     UpperOut out;
     static std::uint64_t total = 0, calls = 0;
     static const bool count = std::getenv("PS2_VU_COUNT") != nullptr;
-    static const bool record_jumps = std::getenv("PS2_VU_RECORD") != nullptr || static_cast<bool>(g_options.on_vu_program);
+    static const bool record_jumps = !record_dir().empty() || static_cast<bool>(g_options.on_vu_program);
     if (count && ++calls % 20000 == 0) std::fprintf(stderr, "[vu1] %llu calls, %llu instructions\n", (unsigned long long)calls, (unsigned long long)total);
     BranchView view;
     for (std::uint32_t steps = 0; steps < 1'000'000; ++steps, ++total) {

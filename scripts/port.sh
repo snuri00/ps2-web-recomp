@@ -207,8 +207,9 @@ if [ "$web" = 1 ]; then
 fi
 echo
 if [ "$web" = 1 ]; then
-  printf 'Done. Serve it with:  python3 scripts/serve.py %q %q\n' "build/web-$name" "games/$name/disc.iso"
+  printf 'Done. Serve it with:  python3 scripts/serve.py %q %q --game %q\n' "build/web-$name" "games/$name/disc.iso" "games/$name"
   echo "and open http://localhost:8620/"
+  echo "--game keeps the code and VU1 programs the page meets untranslated; run port.sh again to translate them"
 fi
 play=$(printf '%q %q --disc %q --window' "build/native-$name/ps2run" "${elf#$ROOT/}" "games/$name/disc.iso")
 [ -f "$game/patches.txt" ] && play="$play --patches $(printf '%q' "games/$name/patches.txt")"

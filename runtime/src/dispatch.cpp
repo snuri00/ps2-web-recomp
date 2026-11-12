@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <set>
@@ -330,14 +331,23 @@ const Instance *instance_with_entry(std::uint32_t pc) {
 void record_miss(std::uint32_t pc) {
     // In a fixed window several images may be in place at once, so the pc is
     // recorded bare: the capture names it after the image the RAM dump holds.
-    if (const Instance *m = proven_instance_for(pc); m && !m->module->fixed_base) {
-        char token[96];
+    char token[96];
+    const Instance *m = proven_instance_for(pc);
+    if (m && !m->module->fixed_base) {
         std::snprintf(token, sizeof token, "%s:%x", m->module->name, pc - m->base);
-        if (!g_module_misses.insert(token).second || g_options.misses_path.empty()) return;
+        if (!g_module_misses.insert(token).second) return;
+        if (g_options.on_miss) g_options.on_miss(token);
+        if (g_options.misses_path.empty()) return;
         std::ofstream(g_options.misses_path, std::ios::app) << token << "\n";
         return;
     }
-    if (!g_misses.insert(pc).second || g_options.misses_path.empty()) return;
+    if (!g_misses.insert(pc).second) return;
+    if (g_options.on_miss) {
+        if (m) std::snprintf(token, sizeof token, "%s:%x", m->module->name, pc - m->base);
+        else std::snprintf(token, sizeof token, "%x", pc);
+        g_options.on_miss(token);
+    }
+    if (g_options.misses_path.empty()) return;
     std::ofstream out(g_options.misses_path, std::ios::app);
     out << std::hex << pc << "\n";
 }
@@ -386,7 +396,10 @@ bool interpreter_on() {
 #ifdef __EMSCRIPTEN__
     return true;
 #else
-    static const bool on = std::getenv("PS2_INTERP") != nullptr;
+    static const bool on = [] {
+        const char *env = std::getenv("PS2_INTERP");
+        return env ? std::strcmp(env, "0") != 0 : g_options.interpret;
+    }();
     return on;
 #endif
 }

@@ -55,6 +55,17 @@ EM_JS(int, ps2web_save_program, (const char *name, const std::uint8_t *code, int
     }
 });
 
+EM_JS(int, ps2web_save_entry, (const char *token), {
+    try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', 'entry/' + encodeURIComponent(UTF8ToString(token)), false);
+        xhr.send();
+        return xhr.status;
+    } catch (e) {
+        return 0;
+    }
+});
+
 EM_JS(double, ps2web_disc_size, (), { return Module.discSize || 0; });
 EM_JS(char *, ps2web_state_url, (), { return Module.stateUrl ? stringToNewUTF8(new URL(Module.stateUrl, location.href).href) : 0; });
 EM_JS(double, ps2web_url_size, (const char *url), {
@@ -405,6 +416,13 @@ int main(int argc, char **argv) {
         if (unsupported) return;
         const int status = ps2web_save_program(name.c_str(), code, static_cast<int>(size));
         if (status == 200 || status == 201) std::fprintf(stderr, "[web] saved VU1 program %s\n", name.c_str());
+        else unsupported = true;
+    };
+    ps2::g_options.on_miss = [](const std::string &token) {
+        static bool unsupported = false;
+        if (unsupported) return;
+        const int status = ps2web_save_entry(token.c_str());
+        if (status == 200 || status == 201) std::fprintf(stderr, "[web] saved entry point %s\n", token.c_str());
         else unsupported = true;
     };
     if (!EM_ASM_INT({ return Module.noCard ? 1 : 0; })) {

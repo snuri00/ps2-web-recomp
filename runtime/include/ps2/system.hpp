@@ -55,6 +55,9 @@ struct Options {
     std::vector<Patch> patches;
     std::function<void()> on_vblank;
     std::function<void(const std::string &name, const std::uint8_t *code, std::size_t size)> on_vu_program;
+    std::string vu_record_dir;
+    std::function<void(const std::string &token)> on_miss;
+    bool interpret = false;
     std::string memcard_path;
     std::function<void()> on_memcard_saved;
     std::string save_state_path;
