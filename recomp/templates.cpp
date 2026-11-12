@@ -155,6 +155,19 @@ int main(int argc, char **argv) {
                 if (o.blob == bi)
                     for (std::uint32_t p = 0; p < templates[ti].pieces; ++p)
                         where[o.piece + p] = {ti, (b.pieces[o.piece + p].start - b.pieces[o.piece].start) * 4};
+        const auto piece_of = [&](std::uint32_t idx) {
+            auto it = std::upper_bound(b.pieces.begin(), b.pieces.end(), idx, [](std::uint32_t x, const Piece &p) { return x < p.start; });
+            return static_cast<std::uint32_t>(it - b.pieces.begin()) - 1;
+        };
+        for (std::uint32_t i = 0; i < b.w.size(); ++i) {
+            const std::uint32_t v = b.w[i];
+            if ((v >> 26) != 3) continue;
+            const std::uint32_t target = ((load + i * 4) & 0xF0000000u) | ((v & 0x03FFFFFFu) << 2);
+            if (target < load || target - load >= b.w.size() * 4) continue;
+            const std::uint32_t idx = (target - load) / 4, k = piece_of(idx);
+            if (k >= b.pieces.size()) continue;
+            weak[where[k].first].insert(where[k].second + (idx - b.pieces[k].start) * 4);
+        }
         for (const std::uint32_t v : b.w) {
             if (v < load || v - load >= b.w.size() * 4 || (v & 3u)) continue;
             const std::uint32_t idx = (v - load) / 4;
