@@ -83,7 +83,7 @@ The keyboard maps the face buttons to Z (cross), X (circle), A (square) and S (t
 
 ## Playing natively
 
-The native runner, `build/native-mygame/ps2run`, plays the game in a window when SDL2 is installed; `scripts/port.sh mygame "My Game.iso" --native-only` builds only this one. It draws through wgpu-native on Vulkan and plays sound through SDL. The keyboard uses the page's keys for the buttons, with the arrow keys as both the D-pad and the left stick, and any game controller SDL recognizes works too, the Steam Deck's own controls included, with the same trigger pressure and vibration as in the browser.
+The native runner, `build/native-mygame/ps2run`, plays the game in a window when SDL2 is installed; `scripts/port.sh mygame "My Game.iso" --native-only` builds only this one. It draws through wgpu-native on Vulkan and plays sound through SDL. The keyboard uses the page's keys, the arrow keys for the D-pad and I, J, K and L for the left stick, and any game controller SDL recognizes works too, the Steam Deck's own controls included, with the same trigger pressure and vibration as in the browser.
 
 ```bash
 build/native-mygame/ps2run games/mygame/disc/SLUS_123.45 --disc games/mygame/disc.iso --window --memcard mygame.ps2

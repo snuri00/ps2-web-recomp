@@ -168,10 +168,10 @@ void poll_port(int port) {
         const Uint8 *keys = SDL_GetKeyboardState(nullptr);
         for (const KeyBinding &b : kKeys)
             if (keys[b.key]) pressed |= b.button;
-        if (keys[SDL_SCANCODE_LEFT]) lx = 0x00;
-        if (keys[SDL_SCANCODE_RIGHT]) lx = 0xFF;
-        if (keys[SDL_SCANCODE_UP]) ly = 0x00;
-        if (keys[SDL_SCANCODE_DOWN]) ly = 0xFF;
+        if (keys[SDL_SCANCODE_J]) lx = 0x00;
+        if (keys[SDL_SCANCODE_L]) lx = 0xFF;
+        if (keys[SDL_SCANCODE_I]) ly = 0x00;
+        if (keys[SDL_SCANCODE_K]) ly = 0xFF;
     }
     if (pad) {
         for (const PadBinding &b : kPadButtons)
