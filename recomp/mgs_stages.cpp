@@ -20,11 +20,8 @@
 
 namespace {
 
-struct Game {
-    const char *dir;
-    std::uint32_t load;
-};
-constexpr Game kGames[] = {{"MGS2", 0x001EF600u}, {"MGS", 0x00252180u}};
+constexpr const char *kDirs[] = {"MGS2", "MGS"};
+constexpr std::uint32_t kRamBegin = 0x00100000u, kRamEnd = 0x02000000u;
 
 void decrypt(std::uint8_t *bytes, std::size_t n) {
     std::uint32_t *w = reinterpret_cast<std::uint32_t *>(bytes);
@@ -94,15 +91,13 @@ int main(int argc, char **argv) {
     }
     std::ifstream iso(argv[1], std::ios::binary);
     std::uint32_t lba = 0, size = 0, load = 0;
-    for (const Game &g : kGames) {
+    bool found = false;
+    for (const char *dir : kDirs) {
         if (!iso) break;
-        if (find_file(iso, g.dir, "STAGE.DAT", lba, size)) {
-            load = g.load;
-            break;
-        }
+        if ((found = find_file(iso, dir, "STAGE.DAT", lba, size))) break;
         iso.clear();
     }
-    if (!load) {
+    if (!found) {
         std::fprintf(stderr, "no /MGS2/STAGE.DAT or /MGS/STAGE.DAT on %s\n", argv[1]);
         return 1;
     }
@@ -129,7 +124,8 @@ int main(int argc, char **argv) {
         }
         std::uint32_t first = 0;
         if (plain.size() >= 4) std::memcpy(&first, plain.data(), 4);
-        if (first == load && plain.size() > 0x10000) {
+        if (!load && plain.size() > 0x10000 && first >= kRamBegin && first < kRamEnd && !(first & 3u)) load = first;
+        if (load && first == load && plain.size() > 0x10000) {
             const std::string path = std::string(argv[2]) + "/" + std::to_string(s) + ".bin";
             std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char *>(plain.data()), static_cast<std::streamsize>(plain.size()));
             ++images;
