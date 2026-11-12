@@ -17,6 +17,7 @@ struct Program {
     std::set<std::uint32_t> entries;
     std::set<std::uint32_t> rejected;
     std::set<std::uint32_t> dynamic;
+    bool branches_leave{};
 
     bool is_code(std::uint32_t address) const {
         return address >= base && address < end && (address & 3u) == 0 && code[(address - base) >> 2];
@@ -26,6 +27,6 @@ struct Program {
 // weak entries become code only where they decode as code, like the
 // candidates the analysis finds itself
 Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entries, const std::set<std::uint32_t> &dynamic = {},
-                const std::vector<std::uint32_t> &weak = {});
+                const std::vector<std::uint32_t> &weak = {}, bool branches_leave = false);
 
 }

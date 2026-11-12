@@ -56,7 +56,7 @@ public:
                     // executable. Like an external jal, that does not make the
                     // caller invalid; dispatch resolves the target at run time.
                     if (!valid_target(insn.branch_target_of())) {
-                        if (f == Flow::Jump) break;
+                        if (f == Flow::Jump || p_.branches_leave) break;
                         return false;
                     }
                     pending.push_back(insn.branch_target_of());
@@ -209,9 +209,10 @@ std::vector<std::uint32_t> frame_starts(const Image &image, std::uint32_t begin,
 }
 
 Program analyse(const Image &image, const std::vector<std::uint32_t> &extra_entries, const std::set<std::uint32_t> &dynamic,
-                const std::vector<std::uint32_t> &weak) {
+                const std::vector<std::uint32_t> &weak, bool branches_leave) {
     Program p;
     p.dynamic = dynamic;
+    p.branches_leave = branches_leave;
     p.base = UINT32_MAX;
     for (const auto &segment : image.segments()) {
         if (!segment.executable) continue;

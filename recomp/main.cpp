@@ -398,7 +398,7 @@ int main(int argc, char **argv) {
             for (const std::uint32_t at : t.dynamic) links[at] = {Fix::Jump, true, 0};
             std::vector<std::uint32_t> seeds = t.seeds;
             if (const auto it = entries.modules.find(t.name); it != entries.modules.end()) seeds.insert(seeds.end(), it->second.begin(), it->second.end());
-            programs.push_back(analyse(images.back(), seeds, dynamic_sites(links), t.weak));
+            programs.push_back(analyse(images.back(), seeds, dynamic_sites(links), t.weak, true));
             const Program &p = programs.back();
             const std::size_t code = code_size(p);
             if (!code) continue;
