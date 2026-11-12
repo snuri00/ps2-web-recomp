@@ -71,7 +71,7 @@ Patch files made for PCSX2 work as well. `port.sh` prints the CRC that PCSX2 put
 
 A game may also rewrite its own code: its executable declares an executable segment with no file contents and unpacks a different image into it as the game goes, the way Kingdom Hearts II swaps the module running its boot and menus. No single translation of such a segment can be right, so the exploring runs capture each image the game puts there, translate one per distinct code, and the runtime serves a call into the window from the image whose code is actually in place, checking it word by word. Data in the window the game rewrites freely never matches wrong, and a recapture of a known image folds into the image of the same code.
 
-Set your expectations accordingly: two games have been brought up so far. Another game will most likely stop at a system call or an IOP library function nobody implemented yet, which the runner logs as `[sys] unhandled syscall` or `[iop] missing <library> #<n>`, or use a GS feature the renderer does not handle yet.
+About a dozen games have been tried since, and how far each gets varies. A game nobody has tried may still stop at a system call or an IOP library function that is not implemented, which the runner logs as `[sys] unhandled syscall` or `[iop] missing <library> #<n>`, or use a GS feature the renderer does not handle.
 
 To check that a change broke nothing, `scripts/regress.sh record mygame` keeps the cycle count and the frame digests of a headless run, and `scripts/regress.sh` replays every game recorded that way and names the ones that differ.
 
