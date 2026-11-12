@@ -20,6 +20,9 @@ options:
   --rounds N         exploring runs at most (default 8)
   --no-explore       translate and build without running the game
   --native-only      skip the browser build and the Emscripten SDK it needs
+  --quick            compile the native runner's game code with -O1: it builds
+                     in about two thirds of the time and runs about a sixth
+                     slower, for work on a port rather than for playing
   --pnach FILE       apply a PCSX2 patch file, repeatable; patches that land in
                      the executable are translated with it, the rest are
                      written into memory at boot or every frame
@@ -35,7 +38,7 @@ EOF
 
 [ $# -ge 2 ] || { usage; exit 2; }
 name="$1"; source_path="$2"; shift 2
-frames=3600; rounds=8; explore=1; web=1; presses=(); pnach=(); state=""
+frames=3600; rounds=8; explore=1; web=1; presses=(); pnach=(); state=""; game_flags=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --frames) frames="$2"; shift ;;
@@ -43,6 +46,7 @@ while [ $# -gt 0 ]; do
     --rounds) rounds="$2"; shift ;;
     --no-explore) explore=0 ;;
     --native-only) web=0 ;;
+    --quick) game_flags="-O1" ;;
     --pnach) pnach+=("$(realpath "$2")"); shift ;;
     --pnach-section) pnach=(--section "$2" "${pnach[@]}"); shift ;;
     --state) state="$(realpath "$2")"; shift ;;
@@ -135,7 +139,9 @@ translate
 build_native() {
   if [ ! -f "$native/build.ninja" ]; then
     . "$here/cxx.sh"
-    cmake -S "$ROOT" -B "$native" -G Ninja -DCMAKE_BUILD_TYPE=Release "${cxx_flags[@]}" -DPS2_GENERATED="$generated" > /dev/null
+    cmake -S "$ROOT" -B "$native" -G Ninja -DCMAKE_BUILD_TYPE=Release "${cxx_flags[@]}" -DPS2_GENERATED="$generated" -DPS2_GAME_FLAGS="$game_flags" > /dev/null
+  elif [ "$(sed -n 's/^PS2_GAME_FLAGS:STRING=//p' "$native/CMakeCache.txt")" != "$game_flags" ]; then
+    cmake -S "$ROOT" -B "$native" -DPS2_GAME_FLAGS="$game_flags" > /dev/null
   fi
   ninja -C "$native" ps2run > "$native/ninja.log" 2>&1 || { tail -30 "$native/ninja.log"; exit 1; }
 }
