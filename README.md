@@ -73,6 +73,8 @@ A game may also rewrite its own code: its executable declares an executable segm
 
 Set your expectations accordingly: two games have been brought up so far. Another game will most likely stop at a system call or an IOP library function nobody implemented yet, which the runner logs as `[sys] unhandled syscall` or `[iop] missing <library> #<n>`, or use a GS feature the renderer does not handle yet.
 
+To check that a change broke nothing, `scripts/regress.sh record mygame` keeps the cycle count and the frame digests of a headless run, and `scripts/regress.sh` replays every game recorded that way and names the ones that differ.
+
 ## Browsers
 
 The page needs WebGPU for the GPU renderer. Chrome and Edge have it on Windows and macOS. On Linux it is off by default in Chrome and Chromium: turn on `chrome://flags/#enable-unsafe-webgpu` and `chrome://flags/#enable-vulkan` and restart the browser, as the page tells you when it finds no usable adapter. Without WebGPU the software renderer takes over, which is fine for menus and far too slow for 3D. On laptops with two GPUs, a canvas drawn on the discrete GPU sometimes cannot be shown on the screen; the page tries both adapters and falls back to copying frames through a 2D canvas.
