@@ -123,6 +123,7 @@
   </div>
 </div>
 <div id="bar"><span id="status">Loading…</span><span id="stats"></span>
+  <button id="report" type="button" hidden title="Copy what the game printed when it stopped, to paste into an issue">Copy report</button>
   <button id="invite" class="host-only" type="button" disabled title="Make a room and copy a link that lets a friend watch and play as player 2">Invite</button>
   <button id="menu-toggle" type="button" aria-expanded="false" aria-controls="menu">Menu ▴</button>
   <button id="fullscreen" type="button" title="Fullscreen (F or double click)">Fullscreen</button></div>
@@ -167,6 +168,30 @@ function note(text) {
     noteTimer = 0;
   }, 5000);
 }
+const LOG_TAIL = 200, LOG_INTERPRETED = 60;
+const logTail = [], logInterpreted = [];
+let haltReason = '';
+function keepLog(text) {
+  if (text.startsWith('[ee] interpreting') && logInterpreted.length < LOG_INTERPRETED) logInterpreted.push(text);
+  logTail.push(text);
+  if (logTail.length > LOG_TAIL) logTail.shift();
+}
+const reportButton = document.getElementById('report');
+reportButton.addEventListener('click', async () => {
+  const report = ['PS2 Web Recomp report', 'halted: ' + haltReason, 'page: ' + location.pathname + location.search,
+                  'browser: ' + navigator.userAgent, 'gpu: ' + (Module.gpuInfo || 'unknown'), '']
+    .concat(logInterpreted.length ? ['code run by the interpreter:'].concat(logInterpreted, ['']) : [], ['last lines of the log:'], logTail).join('\n');
+  try {
+    await navigator.clipboard.writeText(report);
+    note('Report copied, paste it into an issue');
+  } catch (e) {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([report], { type: 'text/plain' }));
+    link.download = 'ps2-web-recomp-report.txt';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+});
 let cardTimer = 0;
 function storeCard(then) {
   clearTimeout(cardTimer);
@@ -1074,6 +1099,8 @@ var Module = {
     noteTimer = 0;
     statusEl.textContent = 'Halted: ' + reason;
     statusEl.style.color = '#f66';
+    haltReason = reason;
+    reportButton.hidden = false;
   },
   onQuickState: (loading, success) => {
     if (!statePending || statePending.loading !== loading) return;
@@ -1088,8 +1115,8 @@ var Module = {
     aaLabel.title = available ? 'Smooth jagged edges, applied immediately' : 'Antialiasing needs direct WebGPU presentation';
     applyVideo();
   },
-  print: (text) => console.log(text),
-  printErr: (text) => console.log(text),
+  print: (text) => { keepLog(text); console.log(text); },
+  printErr: (text) => { keepLog(text); console.log(text); },
   setStatus: (text) => {
     if (!text || Module.gpuInfo) return;
     const progress = text.match(/^Downloading data\.\.\. \((\d+)\/\d+\)/);
